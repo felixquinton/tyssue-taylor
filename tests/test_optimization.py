@@ -7,96 +7,199 @@ Created on Wed Jun 20 11:35:28 2018
 """
 import os
 import numpy as np
+import pyOpt
 
-from tyssue.generation.shapes import AnnularSheet
+from tyssue.generation import generate_ring
+from tyssue.solvers.sheet_vertex_solver import Solver
 
-from tyssue_taylor.segmentation.segment2D import (extract_membranes,
-                                                  _recognize_in_from_out,
-                                                  _delete_artifact,
-                                                  _arrange_centers_clockwise,
-                                                  extract_nuclei,
-                                                  generate_ring_from_image)
+from tyssue_taylor.models.annular import AnnularGeometry as geom
+from tyssue_taylor.models.annular import model
+from tyssue_taylor.adjusters.adjust_annular import (prepare_tensions,
+                                                    _opt_dist,
+                                                    _cst_dist,
+                                                    _opt_ener,
+                                                    _wrap_obj_and_const,
+                                                    _create_pyOpt_model)
 CURRENT_DIR = os.path.abspath(__file__)
 
-def test_recognize_in_from_out():
-    retained_contours = np.array([[[[1, 0]], [[0, 1]]], [[[2, 0]], [[0, 2]]]])
-    centers = np.array([[0, 0], [0, 0]])
-    radii = np.array([1, 2])
-    inside, outside, res_dic = _recognize_in_from_out(retained_contours,
-                                                      centers, radii)
-    for table in (inside, outside):
-        assert not np.any(np.isnan(table))
-        assert not np.any(np.isinf(table))
-        assert table.shape[1] == 2
-        assert table.shape[0] > 1
-    assert res_dic['rIn'] > 0
-    assert res_dic['rOut'] > res_dic['rIn']
-    assert not np.any(np.isnan(res_dic['center_inside']))
-    assert not np.any(np.isinf(res_dic['center_inside']))
+def test_prepare_tensions():
+    organo = generate_ring(3, 1, 2)
+    organo.edge_df.loc[:, 'line_tension'] = np.ones(12)
+    tension_array = organo.edge_df.loc[:, 'line_tension'][:3*organo.Nf]
+    tension_array[0] += 1
+    tension_array[3*organo.Nf-1] += 1
+    tensions = prepare_tensions(organo, tension_array)
+    assert len(tensions) == 4*organo.Nf
+    assert np.all(np.equal(tensions[:3*organo.Nf], tension_array[:3*organo.Nf]))
+    assert np.all(np.equal(np.roll(tensions[3*organo.Nf:], -1),
+                           tension_array[2*organo.Nf:]))
+
+def test_opt_dist():
+    organo = generate_ring(3, 1, 2)
+    geom.update_all(organo)
+    specs = {
+        'face':{
+            'is_alive': 1,
+            'prefered_area':  1.1*organo.face_df.area,
+            'area_elasticity': 1,},
+        'edge':{
+            'ux': 0.,
+            'uy': 0.,
+            'uz': 0.,
+            'line_tension': 0.01,
+            'is_active': 1
+            },
+        'vert':{
+            'adhesion_strength': 0.,
+            'x_ecm': 0.,
+            'y_ecm': 0.,
+            'is_active': 1
+            },
+        'settings': {
+            'lumen_elasticity': 0.01,
+            'lumen_prefered_vol': organo.settings['lumen_volume'],
+            'lumen_volume': organo.settings['lumen_volume']
+            }
+        }
+    organo.update_specs(specs, reset=True)
+    tension_array = organo.edge_df.loc[:, 'line_tension'][:3*organo.Nf]
+    regularization = {'dic':{'apical' : True, 'basal': True},
+                      'weight': 0.01}
+    energy_opt = {'options': {'gtol': 1e-1, 'ftol': 1e-1}}
+    error = _opt_dist(tension_array, organo, regularization, **energy_opt)
+    assert isinstance(error, np.ndarray)
+    tension_array = np.concatenate(
+        (organo.edge_df.loc[:, 'line_tension'][:3*organo.Nf],
+         [organo.settings['lumen_prefered_vol']]))
+    error = _opt_dist(tension_array, organo, regularization, **energy_opt)
+    assert isinstance(error, np.ndarray)
 
 
-def test_extract_membranes():
-    gp_dir = os.sep.join(CURRENT_DIR.split(os.sep)[:-2])
-    brightfield_path = gp_dir+'/assets/sample_image_brightfield.tiff'
-    assert os.path.isfile(brightfield_path)
-    membrane_dic = extract_membranes(brightfield_path)
-    for table in (membrane_dic['inside'], membrane_dic['outside'],
-                  membrane_dic['raw_inside'], membrane_dic['raw_outside']):
-        assert isinstance(table, np.ndarray)
-        assert not np.any(np.isnan(table))
-        assert not np.any(np.isinf(table))
-        assert table.shape[1] == 2
-        assert table.shape[0] > 1
-    assert membrane_dic['rIn'] > 0
-    assert membrane_dic['rOut'] > membrane_dic['rIn']
-    assert membrane_dic['img_shape'][0] > membrane_dic['rOut']
-    assert not np.any(np.isnan(membrane_dic['center_inside']))
-    assert not np.any(np.isinf(membrane_dic['center_inside']))
+def test_cst_dist():
+    organo = generate_ring(3, 1, 2)
+    geom.update_all(organo)
+    specs = {
+        'face':{
+            'is_alive': 1,
+            'prefered_area':  1.1*organo.face_df.area,
+            'area_elasticity': 1,},
+        'edge':{
+            'ux': 0.,
+            'uy': 0.,
+            'uz': 0.,
+            'line_tension': 0.01,
+            'is_active': 1
+            },
+        'vert':{
+            'adhesion_strength': 0.,
+            'x_ecm': 0.,
+            'y_ecm': 0.,
+            'is_active': 1
+            },
+        'settings': {
+            'lumen_elasticity': 0.01,
+            'lumen_prefered_vol': organo.settings['lumen_volume'],
+            'lumen_volume': organo.settings['lumen_volume']
+            }
+        }
+    organo.update_specs(specs, reset=True)
+    tension_array = organo.edge_df.loc[:, 'line_tension'][:3*organo.Nf]
+    regularization = {'dic':{'apical' : True, 'basal': True},
+                      'weight': 0.01}
+    initial_dist = 1
+    energy_opt = {'options': {'gtol': 1e-1, 'ftol': 1e-1}}
+    error = _cst_dist(tension_array, organo, initial_dist,
+                      regularization, **energy_opt)
+    assert isinstance(error, float)
+    tension_array = np.concatenate(
+        (organo.edge_df.loc[:, 'line_tension'][:3*organo.Nf],
+         [organo.settings['lumen_prefered_vol']]))
+    error = _cst_dist(tension_array, organo, initial_dist,
+                      regularization, **energy_opt)
+    assert isinstance(error, float)
 
-def test_delete_artifact():
-    centers = np.array([[1, 0], [0, 1], [100, 100]])
-    raw_inside = np.array([[1, 0], [0, 1], [-1, 0], [0, -1]])
-    res = _delete_artifact(centers, raw_inside)
-    assert [100, 100] not in res
-    assert [1, 0] in res
-    assert [0, 1] in res
-    assert len(res) == 2
+def test_opt_ener():
+    organo = generate_ring(3, 1, 2)
+    geom.update_all(organo)
+    specs = {
+        'face':{
+            'is_alive': 1,
+            'prefered_area':  1.1*organo.face_df.area,
+            'area_elasticity': 1,},
+        'edge':{
+            'ux': 0.,
+            'uy': 0.,
+            'uz': 0.,
+            'line_tension': 0.01,
+            'is_active': 1
+            },
+        'vert':{
+            'adhesion_strength': 0.,
+            'x_ecm': 0.,
+            'y_ecm': 0.,
+            'is_active': 1
+            },
+        'settings': {
+            'lumen_elasticity': 0.01,
+            'lumen_prefered_vol': organo.settings['lumen_volume'],
+            'lumen_volume': organo.settings['lumen_volume']
+            }
+        }
+    organo.update_specs(specs, reset=True)
+    tension_array = organo.edge_df.loc[:, 'line_tension'][:3*organo.Nf]
+    energy_opt = {'options': {'gtol': 1e-1, 'ftol': 1e-1}}
+    ener = _opt_ener(tension_array, organo, **energy_opt)
+    assert isinstance(ener, float)
+    assert ener > 0
+    tension_array = np.concatenate(
+        (organo.edge_df.loc[:, 'line_tension'][:3*organo.Nf],
+         [organo.settings['lumen_prefered_vol']]))
+    ener = _opt_ener(tension_array, organo, **energy_opt)
+    assert isinstance(ener, float)
+    assert ener > 0
 
-def test_arrange_centers_clockwise():
-    centers = [[1, 0], [0, 1], [-1, 0], [0, -1]]
-    org_center = (0, 0)
-    res = _arrange_centers_clockwise(centers, org_center)
-    assert isinstance(res, list)
-    assert len(res) == 4
-    assert res.index((1, 0)) == (res.index((0, 1)) - 1) % 4
-    assert res.index((0, -1)) == (res.index((1, 0)) - 1) % 4
-    assert res.index((-1, 0)) == (res.index((0, -1)) - 1) % 4
-    assert res.index((0, 1)) == (res.index((-1, 0)) - 1) % 4
+def test_wrap_obj_and_const():
+    organo = generate_ring(3, 1, 2)
+    geom.update_all(organo)
+    specs = {
+        'face':{
+            'is_alive': 1,
+            'prefered_area':  1.1*organo.face_df.area,
+            'area_elasticity': 1,},
+        'edge':{
+            'ux': 0.,
+            'uy': 0.,
+            'uz': 0.,
+            'line_tension': 0.01,
+            'is_active': 1
+            },
+        'vert':{
+            'adhesion_strength': 0.,
+            'x_ecm': 0.,
+            'y_ecm': 0.,
+            'is_active': 1
+            },
+        'settings': {
+            'lumen_elasticity': 0.01,
+            'lumen_prefered_vol': organo.settings['lumen_volume'],
+            'lumen_volume': organo.settings['lumen_volume']
+            }
+        }
+    organo.update_specs(specs, reset=True)
+    tension_array = np.ones(9)
+    energy_opt = {'options': {'gtol': 1e-1, 'ftol': 1e-1}}
+    regularization = {'dic':{'apical' : True, 'basal': True},
+                      'weight': 0.01}
+    kwargs = {'organo': organo, 'minimize_opt': energy_opt, 'initial_dist': 1,
+              'regularization': regularization}
+    res = _wrap_obj_and_const(tension_array, **kwargs)
+    assert res[0] > 0
+    assert res[1] > 0
+    assert res[2] == 0
 
-def test_extract_nuclei():
-    gp_dir = os.sep.join(CURRENT_DIR.split(os.sep)[:-2])
-    dapi_path = gp_dir+'/assets/CELLPROFILER_sample_image_dapi.tiff.csv'
-    assert os.path.isfile(dapi_path)
-    center_inside = (631.47, 429.66)
-    raw_inside = np.array([[1, 0], [0, 1], [-1, 0], [0, -1]])
-    img_shape = (3, 3)
-    res = extract_nuclei(dapi_path, center_inside, raw_inside, img_shape)
-    assert isinstance(res, np.ndarray)
-    assert res.shape[1] == 2
-    assert res.shape[0] == 136
-
-def test_generate_ring_from_image():
-    gp_dir = os.sep.join(CURRENT_DIR.split(os.sep)[:-2])
-    brightfield_path = gp_dir+'/assets/sample_image_brightfield.tiff'
-    dapi_path = gp_dir+'/assets/CELLPROFILER_sample_image_dapi.tiff.csv'
-    organo, inners, outers = generate_ring_from_image(brightfield_path,
-                                                      dapi_path)
-    for table in (inners, outers):
-        assert isinstance(table, np.ndarray)
-        assert not np.any(np.isnan(table))
-        assert not np.any(np.isinf(table))
-        assert table.shape[1] == 2
-        assert table.shape[0] > 1
-    assert isinstance(organo, AnnularSheet)
-    assert not np.any(np.isnan(organo.vert_df.loc[:, ('x', 'y')]))
-    assert not np.any(np.isnan(organo.edge_df.loc[:, ('trgt', 'srce', 'face')]))
+def test_create_pyOpt_model():
+    obj_fun = _opt_ener
+    initial_guess = np.ones(9)
+    main_min_opt = {'lb': 0, 'ub': 100, 'method': 'PSQP'}
+    assert isinstance(_create_pyOpt_model(obj_fun, initial_guess, main_min_opt),
+                      pyOpt.pyOpt_optimization.Optimization)

@@ -4,12 +4,12 @@ import warnings
 
 
 
-def distance_regularized(eptm, objective_eptm, variables, to_regularize, 
-                         reg_weight, solver, geom, model, coords=None, 
+def distance_regularized(eptm, objective_eptm, variables, to_regularize,
+                         reg_weight, solver, geom, model, coords=None,
                          **kwargs):
 
     """Changes variables inplace in the epithelium, finds the energy minimum,
-    and returns the distance between the new configuration and the objective 
+    and returns the distance between the new configuration and the objective
     epithelium.
     Parameters
     ----------
@@ -22,7 +22,7 @@ def distance_regularized(eptm, objective_eptm, variables, to_regularize,
     coords : list of strings over which the distance to the objective
       is computed if `None`, will default to the eptm.coords
     **kwargs : keyword arguments passed to the energy optimisation
-    variables is a dict of values. The keys are a pair with the element to 
+    variables is a dict of values. The keys are a pair with the element to
     change i.e.
     """
     tmp_eptm = eptm.copy()
@@ -36,11 +36,11 @@ def distance_regularized(eptm, objective_eptm, variables, to_regularize,
         warnings.warn('Energy optimisation failed')
         print(res.get('message', 'no message was provided'))
     dist = _distance(tmp_eptm, objective_eptm, coords)
-    reg_mod = reg_weight * _reg_module(tmp_eptm, 
-                                       to_regularize.get('apical', False), 
+    reg_mod = reg_weight * _reg_module(tmp_eptm,
+                                       to_regularize.get('apical', False),
                                        to_regularize.get('basal', False))
     tension_bound = _tension_bounds(tmp_eptm)
-    return np.concatenate((dist,reg_mod,tension_bound)) 
+    return np.concatenate((dist, reg_mod, tension_bound))
 
 def energy(eptm, variables, solver, geom, model, **kwargs):
     tmp_eptm = eptm.copy()
@@ -48,7 +48,7 @@ def energy(eptm, variables, solver, geom, model, **kwargs):
         if elem in tmp_eptm.data_names:
             tmp_eptm.datasets[elem][columns] = values
         elif elem in tmp_eptm.settings:
-            tmp_eptm.settings[elem] = values 
+            tmp_eptm.settings[elem] = values
     res = solver.find_energy_min(tmp_eptm, geom, model, **kwargs)
     if not res.get('success', True):
         warnings.warn('Energy optimisation failed')
@@ -58,29 +58,32 @@ def energy(eptm, variables, solver, geom, model, **kwargs):
 def _distance(actual_eptm, objective_eptm, coords=None):
     if coords is None:
         coords = objective_eptm.coords
-
-    diff = (actual_eptm.vert_df[coords].copy() - 
-            objective_eptm.vert_df[coords].copy()).values
+    print(coords)
+    #coords = ['x', 'y']
+    print(actual_eptm.vert_df[coords])
+    diff = (actual_eptm.vert_df[coords]-
+            objective_eptm.vert_df[coords]).values
     #print(np.linalg.norm(diff, axis=0).sum())
     norm = np.linalg.norm(diff, axis=1)
     return norm
 
-def _reg_module(actual_eptm, reg_apical, reg_basal):   
+def _reg_module(actual_eptm, reg_apical, reg_basal):
     apical_edges = actual_eptm.edge_df.loc[actual_eptm.apical_edges].copy()
-    apical_module = np.abs(apical_edges.line_tension- 
-                           np.roll(apical_edges.line_tension,-1))
+    apical_module = np.square(apical_edges.line_tension-
+                              np.roll(apical_edges.line_tension, -1))
     basal_edges = actual_eptm.edge_df.loc[actual_eptm.basal_edges].copy()
-    basal_module = np.abs(basal_edges.line_tension - 
-                          np.roll(basal_edges.line_tension,-1))
+    basal_module = np.square(basal_edges.line_tension -
+                             np.roll(basal_edges.line_tension, -1))
     return np.concatenate((int(reg_apical)*np.asarray(apical_module),
-                          int(reg_basal)*np.asarray(basal_module)))
+                           int(reg_basal)*np.asarray(basal_module)))
 
 def _tension_bounds(actual_eptm, coords=None):
     if coords is None:
-        coords = actual_eptm.coords    
-    tensions = actual_eptm.edge_df.loc[:,'line_tension'][:3*actual_eptm.Nf].copy()
-    tension_lb = np.minimum(tensions, np.zeros(3*actual_eptm.Nf))
-    min_tension = np.min(actual_eptm.edge_df.line_tension)
-    tension_ub = np.minimum(-tensions + 1e2*min_tension, 
-                            np.zeros(3*actual_eptm.Nf))
-    return -1e3 * (tension_lb + tension_ub)
+        coords = actual_eptm.coords
+    tensions = actual_eptm.edge_df.loc[:, 'line_tension'][:3*actual_eptm.Nf].copy()
+    tension_lb = -np.minimum(tensions, np.zeros(3*actual_eptm.Nf))
+    min_tension = np.min(tensions[tensions >= 0])
+    tension_ub = np.zeros(3*actual_eptm.Nf)
+    tension_ub[tensions > 1e2*min_tension] = tensions[tensions > 1e2*min_tension]
+    print(tension_ub)
+    return 1e3 * (tension_lb + tension_ub)
