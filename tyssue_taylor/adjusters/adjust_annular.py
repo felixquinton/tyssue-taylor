@@ -152,6 +152,18 @@ def _create_pyOpt_model(obj_fun, initial_guess, main_min_opt):
 
 
 def prepare_tensions(organo, tension_array):
+    """Match the tension in a reduced array to an organo dataset
+
+    Parameters
+    ----------
+    organo : :class:`Epithelium` object
+    tension_array : vector of initial line tensions (size 3*Nf)
+
+    Return
+    ----------
+    tensions : np.ndarray of size 4*Nf
+    the tensions array properly organised to fit into an organo dataset
+    """
     Nf = organo.Nf
     tensions = organo.edge_df.line_tension.values
     # apical and basal edges
@@ -160,3 +172,27 @@ def prepare_tensions(organo, tension_array):
     tensions[2*Nf: 3*Nf] = tension_array[2*Nf:3*Nf]
     tensions[3*Nf: 4*Nf] = np.roll(tension_array[2*Nf:3*Nf], 1)
     return tensions
+
+def set_init_point(r_in, r_out, Nf, alpha):
+    """Define the initial point as proposed in the doc (in french)
+    https://www.sharelatex.com/read/zdxptpnrryhc
+
+    Parameters
+    ----------
+    r_in : float, the radius of the apical ring
+    r_out : float, the radius of the basal ring
+    Nf : int, the number of cells in the mesh
+    alpha : float, the multiplicative coefficient between the mean area
+      of the cells and the mean prefered area of the cells, i.e
+      organo.face_df.prefered_area.mean() = alpha * organo.face_df.area.mean()
+
+    Return
+    ----------
+    initial_point : np.ndarray of size 3*Nf
+    the initial point for the optimization problems, according to the doc.
+    """
+    initial_point = np.zeros(3*Nf)
+    A = (r_out**2-r_in**2)/2*np.sin(2*np.pi/Nf)
+    initial_point[:Nf] = np.full(Nf, 2*np.cos(np.pi/Nf)*A*(alpha-1)*(r_out-r_in))
+    initial_point[2*Nf:] = np.full(Nf, np.sin(2*np.pi/Nf)/2*A*(alpha-1)*r_out)
+    return initial_point

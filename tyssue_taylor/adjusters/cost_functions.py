@@ -58,12 +58,8 @@ def energy(eptm, variables, solver, geom, model, **kwargs):
 def _distance(actual_eptm, objective_eptm, coords=None):
     if coords is None:
         coords = objective_eptm.coords
-    print(coords)
-    #coords = ['x', 'y']
-    print(actual_eptm.vert_df[coords])
     diff = (actual_eptm.vert_df[coords]-
             objective_eptm.vert_df[coords]).values
-    #print(np.linalg.norm(diff, axis=0).sum())
     norm = np.linalg.norm(diff, axis=1)
     return norm
 
@@ -82,8 +78,6 @@ def _tension_bounds(actual_eptm, coords=None):
         coords = actual_eptm.coords
     tensions = actual_eptm.edge_df.loc[:, 'line_tension'][:3*actual_eptm.Nf].copy()
     tension_lb = -np.minimum(tensions, np.zeros(3*actual_eptm.Nf))
-    min_tension = np.min(tensions[tensions >= 0])
     tension_ub = np.zeros(3*actual_eptm.Nf)
-    tension_ub[tensions > 1e2*min_tension] = tensions[tensions > 1e2*min_tension]
-    print(tension_ub)
+    tension_ub[tensions > 10e3] = tensions[tensions > 10e3]
     return 1e3 * (tension_lb + tension_ub)

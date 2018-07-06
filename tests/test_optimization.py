@@ -19,7 +19,8 @@ from tyssue_taylor.adjusters.adjust_annular import (prepare_tensions,
                                                     _cst_dist,
                                                     _opt_ener,
                                                     _wrap_obj_and_const,
-                                                    _create_pyOpt_model)
+                                                    _create_pyOpt_model,
+                                                    set_init_point)
 CURRENT_DIR = os.path.abspath(__file__)
 
 def test_prepare_tensions():
@@ -203,3 +204,14 @@ def test_create_pyOpt_model():
     main_min_opt = {'lb': 0, 'ub': 100, 'method': 'PSQP'}
     assert isinstance(_create_pyOpt_model(obj_fun, initial_guess, main_min_opt),
                       pyOpt.pyOpt_optimization.Optimization)
+
+def test_set_init_point():
+    r_in = 1
+    r_out = 2
+    Nf = 10
+    alpha = 1.01
+    init_point = set_init_point(r_in, r_out, Nf, alpha)
+    assert np.all(np.equal(init_point[Nf:2*Nf], np.zeros(Nf)))
+    assert np.all(np.greater(init_point[:Nf], np.zeros(Nf)))
+    assert np.all(np.greater(init_point[2*Nf:], np.zeros(Nf)))
+    assert np.all(np.greater(init_point[:Nf], init_point[2*Nf:]))
