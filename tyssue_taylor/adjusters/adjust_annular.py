@@ -33,6 +33,12 @@ def adjust_tensions(organo, initial_guess, regularization,
     if energy_min_opt is not None:
         minimize_opt.update(energy_min_opt)
 
+    if main_min_opt['method'] == 'bfgs':
+        def obj_bfgs(initial_guess, organo, regularization, minimize_opt):
+            return np.sum(_opt_dist(initial_guess, organo,
+                                    regularization, **minimize_opt))
+        return minimize(obj_bfgs, initial_guess, **main_min_opt,
+                        args=(organo, regularization, minimize_opt))
     if main_min_opt['method'] in ('trf', 'lm'):
         return least_squares(_opt_dist, initial_guess, **main_min_opt,
                              args=(organo, regularization),
@@ -91,7 +97,7 @@ def _opt_dist(tension_array, organo, regularization,
 
     tmp_organo = organo.copy()
     variables = {}
-    tensions = prepare_tensions(organo, tension_array[:3*tmp_organo.Nf])
+    tensions = prepare_tensions(tmp_organo, tension_array[:3*tmp_organo.Nf])
     variables[('edge', 'line_tension')] = tensions
     if len(tension_array) > 3*tmp_organo.Nf:
         lumen_volume = tension_array[3*tmp_organo.Nf]

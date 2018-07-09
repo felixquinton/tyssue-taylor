@@ -10,10 +10,8 @@ import numpy as np
 import pyOpt
 
 from tyssue.generation import generate_ring
-from tyssue.solvers.sheet_vertex_solver import Solver
 
 from tyssue_taylor.models.annular import AnnularGeometry as geom
-from tyssue_taylor.models.annular import model
 from tyssue_taylor.adjusters.adjust_annular import (prepare_tensions,
                                                     _opt_dist,
                                                     _cst_dist,

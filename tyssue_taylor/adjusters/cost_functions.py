@@ -1,9 +1,6 @@
 import numpy as np
 import warnings
 
-
-
-
 def distance_regularized(eptm, objective_eptm, variables, to_regularize,
                          reg_weight, solver, geom, model, coords=None,
                          **kwargs):
@@ -40,7 +37,9 @@ def distance_regularized(eptm, objective_eptm, variables, to_regularize,
                                        to_regularize.get('apical', False),
                                        to_regularize.get('basal', False))
     tension_bound = _tension_bounds(tmp_eptm)
+    print(dist.sum())
     return np.concatenate((dist, reg_mod, tension_bound))
+    #return dist
 
 def energy(eptm, variables, solver, geom, model, **kwargs):
     tmp_eptm = eptm.copy()
