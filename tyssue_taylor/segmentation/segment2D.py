@@ -126,6 +126,7 @@ def extract_membranes(brightfield_path, threshold=28, blur=9):
 
     return res_dic
 
+
 def extract_nuclei(CP_dapi_path, center_inside, raw_inside, img_shape):
     """
     Parameters
@@ -192,6 +193,31 @@ def get_bissecting_vertices(centers, inners, outers, org_center):
     inner_vs = inners.take(_find_closer_angle(bissect, theta_inners), axis=0)
     outer_vs = outers.take(_find_closer_angle(bissect, theta_outers), axis=0)
     return inner_vs, outer_vs
+
+def normalize_scale(organo, geom):
+    """Rescale an organo so that the mean cell area is close to 1.
+    Useful if one as some issues with the scale of the optimization parameters.
+    Parameters
+    ----------
+    organo : :class:`Epithelium` object
+      the organo to rescale
+
+    geom : tyssue geometry class
+
+    Return
+    ----------
+    res_organo : :class:`Epithelium` object
+      the rescaled organo
+
+    """
+    factor = 1.0
+    r_out = organo.settings['R_out']
+    r_in = organo.settings['R_in']
+    while factor**2*(r_out**2-r_in**2) >= 2/np.sin(2*np.pi/organo.Nf):
+        factor *= 0.99
+    organo.vert_df.loc[:, organo.coords] *= factor
+    geom.update_all(organo)
+    return organo
 
 def _recognize_in_from_out(retained_contours, centers, radii):
     '''Reliable recognition of the inner and outer contours

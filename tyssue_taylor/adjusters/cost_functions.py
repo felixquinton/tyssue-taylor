@@ -1,5 +1,8 @@
-import numpy as np
+"""This module provides cost functions and constraints for the Optimization
+process
+"""
 import warnings
+import numpy as np
 
 def distance_regularized(eptm, objective_eptm, variables, to_regularize,
                          reg_weight, solver, geom, model, coords=None,
@@ -37,11 +40,9 @@ def distance_regularized(eptm, objective_eptm, variables, to_regularize,
                                        to_regularize.get('apical', False),
                                        to_regularize.get('basal', False))
     tension_bound = _tension_bounds(tmp_eptm)
-    print(dist.sum())
     return np.concatenate((dist, reg_mod, tension_bound))
-    #return dist
 
-def energy(eptm, variables, solver, geom, model, **kwargs):
+def _energy(eptm, variables, solver, geom, model, **kwargs):
     tmp_eptm = eptm.copy()
     for (elem, columns), values in variables.items():
         if elem in tmp_eptm.data_names:
@@ -79,4 +80,4 @@ def _tension_bounds(actual_eptm, coords=None):
     tension_lb = -np.minimum(tensions, np.zeros(3*actual_eptm.Nf))
     tension_ub = np.zeros(3*actual_eptm.Nf)
     tension_ub[tensions > 10e3] = tensions[tensions > 10e3]
-    return 1e3 * (tension_lb + tension_ub)
+    return np.power((tension_lb + tension_ub), np.full(tension_lb.shape, 3))
