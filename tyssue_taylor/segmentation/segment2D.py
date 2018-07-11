@@ -210,12 +210,10 @@ def normalize_scale(organo, geom):
       the rescaled organo
 
     """
-    factor = 1.0
-    r_out = organo.settings['R_out']
-    r_in = organo.settings['R_in']
-    while factor**2*(r_out**2-r_in**2) >= 2/np.sin(2*np.pi/organo.Nf):
-        factor *= 0.99
-    organo.vert_df.loc[:, organo.coords] *= factor
+    mean = organo.face_df.area.mean()
+    organo.vert_df.loc[:, organo.coords] /= mean**0.5
+    organo.settings['R_in'] /= mean**0.5
+    organo.settings['R_out'] /= mean**0.5
     geom.update_all(organo)
     return organo
 
