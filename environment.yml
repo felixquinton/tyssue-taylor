@@ -1,10 +1,10 @@
 name: tyssue-taylor
 channels:
 - conda-forge
-- mutirri
 
 
 dependencies:
+  - anaconda swig
+  - f2py
   - opencv
-  - pyopt
   - tyssue

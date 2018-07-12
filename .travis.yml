@@ -2,6 +2,7 @@ before_install:
   - sudo apt-get update
   - sudo apt-get install --yes build-essential
   - sudo apt-get install --yes git
+  - sudo apt-get install gfortran
 
   - wget https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh
   - bash miniconda.sh -b -p $HOME/miniconda
@@ -12,6 +13,9 @@ before_install:
   - conda info -a
   - conda env create -q -f environment.yml
   - source activate tyssue-taylor
+  - git clone https://github.com/madebr/pyOpt.git $PYOPT
+  - cd $PYOPT
+  - python setup.py install
   - conda install pytest pytest-cov
   - pip install coveralls
 
@@ -22,4 +26,4 @@ script:
   - pytest tests
 
 after_success:
-- coveralls
+  - coveralls
