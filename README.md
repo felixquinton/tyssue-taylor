@@ -1,6 +1,5 @@
 
-[![Build Status](https://api.travis-ci.org/felixquinton/tyssue-taylor.svg?branch=mastersta)](https://travis-ci.org/felixquinton/tyssue-taylor)
-
+[![Build Status](https://travis-ci.org/felixquinton/tyssue-taylor.svg?branch=master)](https://travis-ci.org/felixquinton/tyssue-taylor)
 
 # tyssue-taylor - From experimental data to a tyssue model
 
