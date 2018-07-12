@@ -4,7 +4,7 @@ channels:
 
 
 dependencies:
-  - anaconda swig
+  - swig
   - f2py
   - opencv
   - tyssue
