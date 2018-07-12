@@ -16,7 +16,7 @@ from tyssue_taylor.models.annular import model
 from tyssue_taylor.adjusters.cost_functions import (_tension_bounds,
                                                     _reg_module,
                                                     _distance,
-                                                    energy,
+                                                    _energy,
                                                     distance_regularized)
 CURRENT_DIR = os.path.abspath(__file__)
 
@@ -46,7 +46,7 @@ def test_reg_module():
 def test_distance():
     exp_organo = generate_ring(3, 1, 2)
     th_organo = generate_ring(3, 1, 2)
-    exp_organo.vert_df.loc[0,'x'] += 1
+    exp_organo.vert_df.loc[0, 'x'] += 1
     distance = _distance(exp_organo, th_organo)
     assert np.all(np.equal(distance,
                            np.concatenate(([1], np.zeros(exp_organo.Nv-1)))))
@@ -81,12 +81,12 @@ def test_energy():
     organo.update_specs(specs, reset=True)
     variables = {('edge', 'line_tension'): np.ones(12)}
     energy_opt = {'options': {'gtol': 1e-1, 'ftol': 1e-1}}
-    res = energy(organo, variables, Solver, geom, model, **energy_opt)
+    res = _energy(organo, variables, Solver, geom, model, **energy_opt)
     assert isinstance(res, float)
     assert res > 0
     variables = {('edge', 'line_tension'): np.ones(12),
                  ('lumen_prefered_vol', None): organo.settings['lumen_volume']}
-    res = energy(organo, variables, Solver, geom, model, **energy_opt)
+    res = _energy(organo, variables, Solver, geom, model, **energy_opt)
     assert isinstance(res, float)
     assert res > 0
 
