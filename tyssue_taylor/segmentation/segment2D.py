@@ -43,8 +43,10 @@ def generate_ring_from_image(brightfield_path, dapi_path,
                                        membrane_dic['raw_inside'],
                                        membrane_dic['img_shape'])
     #rolling mean
-    inners = pd.rolling_mean(membrane_dic['inside'], rol_window, min_periods=1)
-    outers = pd.rolling_mean(membrane_dic['outside'], rol_window, min_periods=1)
+    inside_df = pd.DataFrame(membrane_dic['inside'], index=None)
+    outside_df = pd.DataFrame(membrane_dic['outside'], index=None)
+    inners = inside_df.rolling(rol_window, min_periods=1).mean().values
+    outers = outside_df.rolling(rol_window, min_periods=1).mean().values
 
     #defining the organoid using the data we saved above
     Nf = len(clockwise_centers)
