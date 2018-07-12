@@ -12,6 +12,7 @@ before_install:
   - conda update -q conda
   - conda info -a
   - conda env create -q -f environment.yml
+  - pip install simpy
   - source activate tyssue-taylor
   - pwd
   - cd ..

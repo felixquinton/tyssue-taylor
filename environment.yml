@@ -1,11 +1,9 @@
 name: tyssue-taylor
 channels:
 - conda-forge
-- asmeurer
 
 
 dependencies:
   - swig
   - opencv
   - tyssue
-  - simpy
