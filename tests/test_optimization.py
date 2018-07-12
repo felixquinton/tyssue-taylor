@@ -30,7 +30,7 @@ def test_prepare_tensions():
     tensions = prepare_tensions(organo, tension_array)
     assert len(tensions) == 4*organo.Nf
     assert np.all(np.equal(tensions[:3*organo.Nf], tension_array[:3*organo.Nf]))
-    assert np.all(np.equal(np.roll(tensions[3*organo.Nf:], -1),
+    assert np.all(np.equal(np.roll(tensions[3*organo.Nf:], 1),
                            tension_array[2*organo.Nf:]))
 
 def test_opt_dist():

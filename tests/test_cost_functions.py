@@ -23,10 +23,10 @@ CURRENT_DIR = os.path.abspath(__file__)
 def test_tension_bounds():
     organo = generate_ring(3, 1, 2)
     organo.edge_df.loc[:, 'line_tension'] = np.ones(12)
-    organo.edge_df.loc[(0, 1), 'line_tension'] = [-1, 1e6]
+    organo.edge_df.loc[(0, 1), 'line_tension'] = [-1, 1e3]
     penalties = _tension_bounds(organo)
     assert len(penalties) == 3*organo.Nf
-    assert penalties[0] == 1e3
+    assert penalties[0] == 1
     assert penalties[1] == 1e9
     assert np.nonzero(penalties)[0].all() in [0, 1]
 
