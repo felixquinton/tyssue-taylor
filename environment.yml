@@ -7,3 +7,4 @@ dependencies:
   - swig
   - opencv
   - tyssue
+  - sympy
