@@ -13,9 +13,12 @@ before_install:
   - conda info -a
   - conda env create -q -f environment.yml
   - source activate tyssue-taylor
-  - git clone https://github.com/madebr/pyOpt.git $PYOPT
-  - cd $PYOPT
+  - pwd
+  - cd ..
+  - git clone https://github.com/madebr/pyOpt.git
+  - cd pyOpt
   - python setup.py install
+  - cd ../tyssue-taylor
   - conda install pytest pytest-cov
   - pip install coveralls
 

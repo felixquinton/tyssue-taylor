@@ -60,7 +60,7 @@ def _distance(actual_eptm, objective_eptm, coords=None):
         coords = objective_eptm.coords
     diff = (actual_eptm.vert_df[coords]-
             objective_eptm.vert_df[coords]).values
-    norm = np.linalg.norm(diff, axis=1)
+    norm = np.sqrt(np.linalg.norm(diff, axis=1))
     return norm
 
 def _reg_module(actual_eptm, reg_apical, reg_basal):
