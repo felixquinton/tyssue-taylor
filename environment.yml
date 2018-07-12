@@ -1,0 +1,10 @@
+name: tyssue-taylor
+channels:
+- conda-forge
+- mutirri
+
+
+dependencies:
+- tyssue
+- pyopt
+- opencv

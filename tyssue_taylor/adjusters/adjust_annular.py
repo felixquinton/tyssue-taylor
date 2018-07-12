@@ -28,8 +28,16 @@ def adjust_tensions(organo, initial_guess, regularization,
                         'weight' : float, weight of the regularization module
     energy_min_opt : scipy.optimize.minize option dictionnary for the energy
                      minimization
-    distance_min_opt : scipy.optimize.minize option dictionnary for the
-                       ditance minimization
+    initial_min_opt : scipy.optimize.minimize option dictionnary for the
+                      initial point search. Ignored if main_min_opt['method']
+                      is not 'PSQP' or 'SLSQP'
+    main_min_opt : option dictionnary for the main optimization. Syntax depends
+                   on the method. For bgfs and SLSQP use the scipy.optimize.minimize
+                   syntax. For trf and lm use the scipy.optimize.least_squares
+                   method. For PSQP the syntax is:
+                   'lb': lower bound of the Parameters
+                   'ub': upper bound of the Parameters
+                   'method': PSQP
     """
     minimize_opt = config.solvers.minimize_spec()
 
@@ -76,9 +84,10 @@ def adjust_tensions(organo, initial_guess, regularization,
             opt_prob = _create_pyOpt_model(_wrap_obj_and_const, initial_guess,
                                            main_min_opt)
             psqp = pyOpt.PSQP()
-            psqp.setOption('IPRINT', 0)
+            psqp.setOption('IPRINT', 2)
 
             [fstr, xstr, inform] = psqp(opt_prob, sens_type='FD',
+                                        sens_mode='pgc',
                                         organo=organo,
                                         regularization=regularization,
                                         initial_dist=initial_dist,
