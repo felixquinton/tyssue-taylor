@@ -9,10 +9,13 @@ import json
 import os
 import argparse
 import numpy as np
+import matplotlib.pyplot as plt
 
 from tyssue.solvers.sheet_vertex_solver import Solver
 from tyssue.io.hdf5 import load_datasets, save_datasets
 from tyssue.generation.shapes import AnnularSheet
+from tyssue.config.draw import sheet_spec
+from tyssue.draw.plt_draw import sheet_view, quick_edge_draw
 
 from tyssue_taylor.adjusters.adjust_annular import (prepare_tensions,
                                                     adjust_tensions)
@@ -25,6 +28,40 @@ ASSET_PATH = os.environ.get('SAVE_DIR_ORGANOID_SIMULATION')
 PATH_HFD5 = ASSET_PATH+'/assets/pipeline_test_theoritical_organo.hdf5'
 
 PATH_JSON = ASSET_PATH+'/assets/pipeline_test_theoritical_organo_specs.json'
+
+def print_tensions(exp_organo, th_organo, to_save=False, path=None):
+    """Print the tensions of an experimental organoid and the theoritical
+    organoid on the same plot and save it in a PNG image.
+
+    Parameters
+    ----------
+    exp_organo : class AnnularSheet
+      the experimental organoid whose tensions will be ploted
+    th_organo : class AnnularSheet
+      the theoritical organoid which will be ploted behind exp_organo tensions
+    to_save : bool
+      if True the plot must be saved
+    path : string
+     path to the saved image.
+    Returns
+    ----------
+    """
+    draw_specs = sheet_spec()
+    tension_max = np.max(exp_organo.edge_df.line_tension.values.copy())
+    edge_color = 1/tension_max*exp_organo.edge_df.line_tension.values.copy()
+    cmap = plt.cm.get_cmap('viridis')
+    edge_cmap = cmap(edge_color)
+    draw_specs['vert']['visible'] = False
+    draw_specs['edge']['color'] = edge_cmap
+    draw_specs['edge']['width'] = 0.25+3*edge_color
+    fig, ax = quick_edge_draw(th_organo, lw=5, c='k', alpha=0.2)
+    fig, ax = sheet_view(exp_organo, ax=ax, **draw_specs)
+    fig.set_size_inches(12, 12)
+    plt.xlabel('Size in µm')
+    plt.ylabel('Size in µm')
+    if to_save:
+        plt.savefig(path)
+
 
 def get_normal_from_seed(seed, mu, theta, shape):
     """Compute a normal pseudo random vector with given parameters wrt to a
@@ -84,7 +121,7 @@ def replicate_organo_from_file(path_hdf5, path_json):
     geom.update_all(exp_organo)
     return th_organo, exp_organo
 
-def save_optimization_results(organo, opt_res, main_opt_options,
+def save_optimization_results(exp_organo, th_organo, opt_res, main_opt_options,
                               energy_opt_options, is_reg, is_lumen,
                               initial_opt_options=None):
     """Save the optimization results.
@@ -125,9 +162,9 @@ def save_optimization_results(organo, opt_res, main_opt_options,
         lum_txt = 'l'
     local_path = './'+main_opt_options['method']+'_'+reg_txt+'_'+lum_txt
     os.makedirs(local_path, exist_ok=True)
-    save_datasets(local_path+'/exp_organo.hdf5', organo)
+    save_datasets(local_path+'/exp_organo.hdf5', exp_organo)
     with open(local_path+'/exp_organo_settings.json', 'w+') as outfile:
-        json.dump(organo.settings, outfile)
+        json.dump(exp_organo.settings, outfile)
     with open(local_path+'/exp_organo_opt_res.json', 'w+') as outfile:
         json.dump(opt_res, outfile)
     with open(local_path+'/exp_organo_main_opt_options.json', 'w+') as outfile:
@@ -136,6 +173,8 @@ def save_optimization_results(organo, opt_res, main_opt_options,
         json.dump(initial_opt_options, outfile)
     with open(local_path+'/exp_organo_energy_opt_options.json', 'w+') as outfile:
         json.dump(energy_opt_options, outfile)
+    print_tensions(exp_organo, th_organo, True, local_path+'/exp_organo.png')
+
 
 def run_nr_nl_optimization(organo, noisy, energy_min, main_min,
                            initial_min=None):
@@ -420,5 +459,5 @@ if __name__ == '__main__':
         else:
             N, O_R, MAIN, ENER, INIT = run_nr_nl_optimization(TH, EXP, ENER_MIN,
                                                               MAIN_MIN, INIT_MIN)
-    save_optimization_results(N, O_R, MAIN, ENER,
+    save_optimization_results(N, TH, O_R, MAIN, ENER,
                               ARGS['reg'], ARGS['lumen'], INIT)
