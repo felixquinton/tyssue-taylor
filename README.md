@@ -1,3 +1,6 @@
+
+[![Build Status](https://travis-ci.org/felixquinton/tyssue-taylor.svg?branch=master)](https://travis-ci.org/felixquinton/tyssue-taylor)
+
 # tyssue-taylor - From experimental data to a tyssue model
 
 This package uses the [`tyssue`](https://tyssue.readthedocs.io) library to adjust a vertex model to experimental microscopy data.

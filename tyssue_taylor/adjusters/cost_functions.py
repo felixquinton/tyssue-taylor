@@ -1,8 +1,8 @@
-import numpy as np
+"""This module provides cost functions and constraints for the Optimization
+process
+"""
 import warnings
-
-
-
+import numpy as np
 
 def distance_regularized(eptm, objective_eptm, variables, to_regularize,
                          reg_weight, solver, geom, model, coords=None,
@@ -42,7 +42,7 @@ def distance_regularized(eptm, objective_eptm, variables, to_regularize,
     tension_bound = _tension_bounds(tmp_eptm)
     return np.concatenate((dist, reg_mod, tension_bound))
 
-def energy(eptm, variables, solver, geom, model, **kwargs):
+def _energy(eptm, variables, solver, geom, model, **kwargs):
     tmp_eptm = eptm.copy()
     for (elem, columns), values in variables.items():
         if elem in tmp_eptm.data_names:
@@ -60,7 +60,7 @@ def _distance(actual_eptm, objective_eptm, coords=None):
         coords = objective_eptm.coords
     diff = (actual_eptm.vert_df[coords]-
             objective_eptm.vert_df[coords]).values
-    norm = np.linalg.norm(diff, axis=1)
+    norm = np.sqrt(np.linalg.norm(diff, axis=1))
     return norm
 
 def _reg_module(actual_eptm, reg_apical, reg_basal):
@@ -79,5 +79,5 @@ def _tension_bounds(actual_eptm, coords=None):
     tensions = actual_eptm.edge_df.loc[:, 'line_tension'][:3*actual_eptm.Nf].copy()
     tension_lb = -np.minimum(tensions, np.zeros(3*actual_eptm.Nf))
     tension_ub = np.zeros(3*actual_eptm.Nf)
-    tension_ub[tensions > 10e3] = tensions[tensions > 10e3]
-    return 1e3 * (tension_lb + tension_ub)
+    tension_ub[tensions > 1e3] = tensions[tensions > 1e3] - 1e3
+    return np.power((tension_lb + tension_ub), np.full(tension_lb.shape, 3))

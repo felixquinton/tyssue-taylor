@@ -43,8 +43,10 @@ def generate_ring_from_image(brightfield_path, dapi_path,
                                        membrane_dic['raw_inside'],
                                        membrane_dic['img_shape'])
     #rolling mean
-    inners = pd.rolling_mean(membrane_dic['inside'], rol_window, min_periods=1)
-    outers = pd.rolling_mean(membrane_dic['outside'], rol_window, min_periods=1)
+    inside_df = pd.DataFrame(membrane_dic['inside'], index=None)
+    outside_df = pd.DataFrame(membrane_dic['outside'], index=None)
+    inners = inside_df.rolling(rol_window, min_periods=1).mean().values
+    outers = outside_df.rolling(rol_window, min_periods=1).mean().values
 
     #defining the organoid using the data we saved above
     Nf = len(clockwise_centers)
@@ -126,6 +128,7 @@ def extract_membranes(brightfield_path, threshold=28, blur=9):
 
     return res_dic
 
+
 def extract_nuclei(CP_dapi_path, center_inside, raw_inside, img_shape):
     """
     Parameters
@@ -192,6 +195,29 @@ def get_bissecting_vertices(centers, inners, outers, org_center):
     inner_vs = inners.take(_find_closer_angle(bissect, theta_inners), axis=0)
     outer_vs = outers.take(_find_closer_angle(bissect, theta_outers), axis=0)
     return inner_vs, outer_vs
+
+def normalize_scale(organo, geom):
+    """Rescale an organo so that the mean cell area is close to 1.
+    Useful if one as some issues with the scale of the optimization parameters.
+    Parameters
+    ----------
+    organo : :class:`Epithelium` object
+      the organo to rescale
+
+    geom : tyssue geometry class
+
+    Return
+    ----------
+    res_organo : :class:`Epithelium` object
+      the rescaled organo
+
+    """
+    mean = organo.face_df.area.mean()
+    organo.vert_df.loc[:, organo.coords] /= mean**0.5
+    organo.settings['R_in'] /= mean**0.5
+    organo.settings['R_out'] /= mean**0.5
+    geom.update_all(organo)
+    return organo
 
 def _recognize_in_from_out(retained_contours, centers, radii):
     '''Reliable recognition of the inner and outer contours

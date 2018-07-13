@@ -10,10 +10,8 @@ import numpy as np
 import pyOpt
 
 from tyssue.generation import generate_ring
-from tyssue.solvers.sheet_vertex_solver import Solver
 
 from tyssue_taylor.models.annular import AnnularGeometry as geom
-from tyssue_taylor.models.annular import model
 from tyssue_taylor.adjusters.adjust_annular import (prepare_tensions,
                                                     _opt_dist,
                                                     _cst_dist,
@@ -32,7 +30,7 @@ def test_prepare_tensions():
     tensions = prepare_tensions(organo, tension_array)
     assert len(tensions) == 4*organo.Nf
     assert np.all(np.equal(tensions[:3*organo.Nf], tension_array[:3*organo.Nf]))
-    assert np.all(np.equal(np.roll(tensions[3*organo.Nf:], -1),
+    assert np.all(np.equal(np.roll(tensions[3*organo.Nf:], 1),
                            tension_array[2*organo.Nf:]))
 
 def test_opt_dist():

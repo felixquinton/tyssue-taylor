@@ -1,0 +1,10 @@
+name: tyssue-taylor
+channels:
+- conda-forge
+
+
+dependencies:
+  - swig
+  - opencv
+  - tyssue
+  - sympy
