@@ -8,6 +8,7 @@ import time
 import json
 import os
 import argparse
+import shutil
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -163,17 +164,27 @@ def save_optimization_results(exp_organo, th_organo, opt_res, main_opt_options,
     local_path = './'+main_opt_options['method']+'_'+reg_txt+'_'+lum_txt
     os.makedirs(local_path, exist_ok=True)
     save_datasets(local_path+'/exp_organo.hdf5', exp_organo)
+    print(exp_organo.settings)
     with open(local_path+'/exp_organo_settings.json', 'w+') as outfile:
         json.dump(exp_organo.settings, outfile)
+    print(opt_res)
     with open(local_path+'/exp_organo_opt_res.json', 'w+') as outfile:
         json.dump(opt_res, outfile)
+    print(main_opt_options)
     with open(local_path+'/exp_organo_main_opt_options.json', 'w+') as outfile:
         json.dump(main_opt_options, outfile)
+    if not initial_opt_options is None:
+        initial_opt_options['bounds'] = list(initial_opt_options.get('bounds',
+                                                                     None))
+    print(initial_opt_options)
     with open(local_path+'/exp_organo_initial_opt_options.json', 'w+') as outfile:
         json.dump(initial_opt_options, outfile)
+    print(energy_opt_options)
     with open(local_path+'/exp_organo_energy_opt_options.json', 'w+') as outfile:
         json.dump(energy_opt_options, outfile)
     print_tensions(exp_organo, th_organo, True, local_path+'/exp_organo.png')
+    shutil.make_archive('./exp_res', format='zip', base_dir=local_path)
+
 
 
 def run_nr_nl_optimization(organo, noisy, energy_min, main_min,
@@ -215,11 +226,18 @@ def run_nr_nl_optimization(organo, noisy, energy_min, main_min,
     noisy.edge_df.line_tension = prepare_tensions(noisy, res_x)
     Solver.find_energy_min(noisy, geom, model)
     res_time = time.clock()-start
-    tension_error = np.divide((initial_guess.values-res_x),
-                              initial_guess.values)
+    tension_error = np.divide((initial_guess-res_x), initial_guess)
+    for ind in res:
+        print(ind, type(res[ind]))
+        if isinstance(res[ind], np.ndarray):
+            res[ind] = list(res[ind])
+        elif isinstance(res[ind], np.int64):
+            res[ind] = np.float(res[ind])
     opt_res = res
+    del opt_res['jac']
+    del opt_res['active_mask']
     opt_res['res_time'] = res_time
-    opt_res['tension_error'] = tension_error
+    opt_res['tension_error'] = list(tension_error)
     opt_res['git_revision'] = version.git_revision
 
     return noisy, opt_res, main_min, energy_min, initial_min
@@ -273,11 +291,18 @@ def run_nr_l_optimization(organo, noisy, energy_min, main_min,
     noisy.edge_df.line_tension = prepare_tensions(noisy, res_x)
     Solver.find_energy_min(noisy, geom, model)
     res_time = time.clock()-start
-    tension_error = np.divide((initial_guess.values-res_x),
-                              initial_guess.values)
+    tension_error = np.divide((initial_guess-res_x), initial_guess)
+    for ind in res:
+        print(ind, type(res[ind]))
+        if isinstance(res[ind], np.ndarray):
+            res[ind] = list(res[ind])
+        elif isinstance(res[ind], np.int64):
+            res[ind] = np.float(res[ind])
     opt_res = res
+    del opt_res['jac']
+    del opt_res['active_mask']
     opt_res['res_time'] = res_time
-    opt_res['tension_error'] = tension_error
+    opt_res['tension_error'] = list(tension_error)
     opt_res['git_revision'] = version.git_revision
 
     return noisy, opt_res, main_min, energy_min, initial_min
@@ -314,7 +339,7 @@ def run_r_nl_optimization(organo, noisy, energy_min, main_min,
     initial_guess = organo.edge_df.line_tension[:3*organo.Nf].values.copy()
     start = time.clock()
     res = adjust_tensions(noisy, initial_guess,
-                          {'dic':{'basal': True, 'apical': True}, 'weight':0.1},
+                          {'dic':{'basal': True, 'apical': True}, 'weight':0.001},
                           energy_min, initial_min, **main_min)
     if main_min['method'] == 'PSQP':
         res_x = res['x']
@@ -323,11 +348,18 @@ def run_r_nl_optimization(organo, noisy, energy_min, main_min,
     noisy.edge_df.line_tension = prepare_tensions(noisy, res_x)
     Solver.find_energy_min(noisy, geom, model)
     res_time = time.clock()-start
-    tension_error = np.divide((initial_guess.values-res_x),
-                              initial_guess.values)
+    tension_error = np.divide((initial_guess-res_x), initial_guess)
+    for ind in res:
+        print(ind, type(res[ind]))
+        if isinstance(res[ind], np.ndarray):
+            res[ind] = list(res[ind])
+        elif isinstance(res[ind], np.int64):
+            res[ind] = np.float(res[ind])
     opt_res = res
+    del opt_res['jac']
+    del opt_res['active_mask']
     opt_res['res_time'] = res_time
-    opt_res['tension_error'] = tension_error
+    opt_res['tension_error'] = list(tension_error)
     opt_res['git_revision'] = version.git_revision
 
     return noisy, opt_res, main_min, energy_min, initial_min
@@ -384,11 +416,18 @@ def run_r_l_optimization(organo, noisy, energy_min, main_min,
     noisy.edge_df.line_tension = prepare_tensions(noisy, res_x)
     Solver.find_energy_min(noisy, geom, model)
     res_time = time.clock()-start
-    tension_error = np.divide((initial_guess.values-res_x),
-                              initial_guess.values)
+    tension_error = np.divide((initial_guess-res_x), initial_guess)
+    for ind in res:
+        print(ind, type(res[ind]))
+        if isinstance(res[ind], np.ndarray):
+            res[ind] = list(res[ind])
+        elif isinstance(res[ind], np.int64):
+            res[ind] = np.float(res[ind])
     opt_res = res
+    del opt_res['jac']
+    del opt_res['active_mask']
     opt_res['res_time'] = res_time
-    opt_res['tension_error'] = tension_error
+    opt_res['tension_error'] = list(tension_error)
     opt_res['git_revision'] = version.git_revision
 
     return noisy, opt_res, main_min, energy_min, initial_min
