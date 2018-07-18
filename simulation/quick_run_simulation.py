@@ -24,12 +24,6 @@ from tyssue_taylor.models.annular import AnnularGeometry as geom
 from tyssue_taylor.models.annular import model
 from tyssue_taylor import version
 
-ASSET_PATH = os.environ.get('SAVE_DIR_ORGANOID_SIMULATION')
-
-PATH_HFD5 = ASSET_PATH+'/assets/pipeline_test_theoritical_organo.hdf5'
-
-PATH_JSON = ASSET_PATH+'/assets/pipeline_test_theoritical_organo_specs.json'
-
 def print_tensions(exp_organo, th_organo, to_save=False, path=None):
     """Print the tensions of an experimental organoid and the theoritical
     organoid on the same plot and save it in a PNG image.
@@ -123,8 +117,8 @@ def replicate_organo_from_file(path_hdf5, path_json):
     return th_organo, exp_organo
 
 def save_optimization_results(exp_organo, th_organo, opt_res, main_opt_options,
-                              energy_opt_options, is_reg, is_lumen,
-                              initial_opt_options=None):
+                              energy_opt_options, is_reg, is_lumen, dir_path,
+                              seed, initial_opt_options=None):
     """Save the optimization results.
 
     Parameters
@@ -161,28 +155,28 @@ def save_optimization_results(exp_organo, th_organo, opt_res, main_opt_options,
         reg_txt = 'r'
     if is_lumen:
         lum_txt = 'l'
-    local_path = './'+main_opt_options['method']+'_'+reg_txt+'_'+lum_txt
+    local_path = dir_path+'/'+main_opt_options['method']+'_'+reg_txt+'_'+lum_txt
     os.makedirs(local_path, exist_ok=True)
-    save_datasets(local_path+'/exp_organo.hdf5', exp_organo)
-    print(exp_organo.settings)
-    with open(local_path+'/exp_organo_settings.json', 'w+') as outfile:
+    save_datasets(local_path+'/exp_organo'+str(seed)+'.hdf5', exp_organo)
+    with open(local_path+'/exp_organo_settings'+str(seed)+'.json',
+              'w+') as outfile:
         json.dump(exp_organo.settings, outfile)
-    print(opt_res)
-    with open(local_path+'/exp_organo_opt_res.json', 'w+') as outfile:
+    with open(local_path+'/exp_organo_opt_res'+str(seed)+'.json',
+              'w+') as outfile:
         json.dump(opt_res, outfile)
-    print(main_opt_options)
     with open(local_path+'/exp_organo_main_opt_options.json', 'w+') as outfile:
         json.dump(main_opt_options, outfile)
     if not initial_opt_options is None:
         initial_opt_options['bounds'] = list(initial_opt_options.get('bounds',
                                                                      None))
-    print(initial_opt_options)
-    with open(local_path+'/exp_organo_initial_opt_options.json', 'w+') as outfile:
-        json.dump(initial_opt_options, outfile)
-    print(energy_opt_options)
-    with open(local_path+'/exp_organo_energy_opt_options.json', 'w+') as outfile:
+        with open(local_path+'/exp_organo_initial_opt_options.json',
+                  'w+') as outfile:
+            json.dump(initial_opt_options, outfile)
+    with open(local_path+'/exp_organo_energy_opt_options.json',
+              'w+') as outfile:
         json.dump(energy_opt_options, outfile)
-    print_tensions(exp_organo, th_organo, True, local_path+'/exp_organo.png')
+    print_tensions(exp_organo, th_organo, True,
+                   local_path+'/exp_organo'+str(seed)+'.png')
     shutil.make_archive('./exp_res', format='zip', base_dir=local_path)
 
 
@@ -240,7 +234,7 @@ def run_nr_nl_optimization(organo, noisy, energy_min, main_min,
     opt_res['tension_error'] = list(tension_error)
     opt_res['git_revision'] = version.git_revision
 
-    return noisy, opt_res, main_min, energy_min, initial_min
+    return noisy, opt_res
 
 def run_nr_l_optimization(organo, noisy, energy_min, main_min,
                           initial_min=None):
@@ -305,7 +299,7 @@ def run_nr_l_optimization(organo, noisy, energy_min, main_min,
     opt_res['tension_error'] = list(tension_error)
     opt_res['git_revision'] = version.git_revision
 
-    return noisy, opt_res, main_min, energy_min, initial_min
+    return noisy, opt_res
 
 
 def run_r_nl_optimization(organo, noisy, energy_min, main_min,
@@ -362,7 +356,8 @@ def run_r_nl_optimization(organo, noisy, energy_min, main_min,
     opt_res['tension_error'] = list(tension_error)
     opt_res['git_revision'] = version.git_revision
 
-    return noisy, opt_res, main_min, energy_min, initial_min
+
+    return noisy, opt_res
 
 
 
@@ -430,9 +425,15 @@ def run_r_l_optimization(organo, noisy, energy_min, main_min,
     opt_res['tension_error'] = list(tension_error)
     opt_res['git_revision'] = version.git_revision
 
-    return noisy, opt_res, main_min, energy_min, initial_min
+    return noisy, opt_res
 
 if __name__ == '__main__':
+
+    ASSET_PATH = os.environ.get('SAVE_DIR_ORGANOID_SIMULATION')
+    with open(ASSET_PATH+'/assets/benchmark_instances/list_seed.json',
+              'r') as inputfile:
+        LIST_SEED = json.load(inputfile)['list']
+
     PARSER = argparse.ArgumentParser(description='Adjust line tensions')
     PARSER.add_argument('--psqp', action='store_true',
                         help='indicates if the solver must use PSQP.')
@@ -441,62 +442,70 @@ if __name__ == '__main__':
     PARSER.add_argument('--trf', action='store_true',
                         help='indicates if the solver must use TRF.')
     PARSER.add_argument('--lm', action='store_true',
-                        help='indicates if the solver must use Levenberg-Marquartd.')
+                        help='indicates if the solver must use Levenberg-\
+                        Marquartd.')
     PARSER.add_argument('--reg', action='store_true',
                         help='indicates if the objective must include a \
                         regularization module.')
     PARSER.add_argument('--lumen', action='store_true',
-                        help='indicates if the optimization must include the lumen \
-                        volume as an optimization parameter.')
+                        help='indicates if the optimization must include the \
+                        lumen volume as an optimization parameter.')
+    PARSER.add_argument('--nb_rep', type=int,
+                        help='number of instances to load and solve')
     ARGS = vars(PARSER.parse_args())
 
-    TH, EXP = replicate_organo_from_file(PATH_HFD5, PATH_JSON)
-    with open(ASSET_PATH+'/assets/pipeline_test_energy_opt.json',
-              'r') as inputfile:
-        ENER_MIN = json.load(inputfile)
-    with open(ASSET_PATH+'/assets/pipeline_test_psqp_opt.json',
-              'r') as inputfile:
-        PSQP_MIN = json.load(inputfile)
-    with open(ASSET_PATH+'/assets/pipeline_test_trf_opt.json',
-              'r') as inputfile:
-        TRF_MIN = json.load(inputfile)
-    with open(ASSET_PATH+'/assets/pipeline_test_bfgs_opt.json',
-              'r') as inputfile:
-        BFGS_MIN = json.load(inputfile)
-    with open(ASSET_PATH+'/assets/pipeline_test_lm_opt.json',
-              'r') as inputfile:
-        LM_MIN = json.load(inputfile)
-    if ARGS['lm']+ARGS['bfgs']+ARGS['trf'] > 1:
-        raise ValueError('Only one method allowed among TRF, BFGS and LM.')
-    MAIN_MIN = TRF_MIN
-    INIT_MIN = None
-    if ARGS['psqp']:
-        MAIN_MIN = PSQP_MIN
-        if ARGS['lm']:
-            INIT_MIN = LM_MIN
-        if ARGS['bfgs']:
-            INIT_MIN = BFGS_MIN
-        else:
-            INIT_MIN = TRF_MIN
-    elif ARGS['lm']:
-        MAIN_MIN = LM_MIN
-    elif ARGS['trf']:
+    for seed in LIST_SEED[:ARGS['nb_rep']]:
+        PATH_HFD5 = ASSET_PATH+'/assets/benchmark_instances/pipeline_test_'+\
+                               'theoritical_organo'+str(seed)+'.hdf5'
+        PATH_JSON = ASSET_PATH+'/assets/benchmark_instances/pipeline_test_'+\
+                               'theoritical_organo_specs'+str(seed)+'.json'
+        TH, EXP = replicate_organo_from_file(PATH_HFD5, PATH_JSON)
+        with open(ASSET_PATH+'/assets/pipeline_test_energy_opt.json',
+                  'r') as inputfile:
+            ENER_MIN = json.load(inputfile)
+        with open(ASSET_PATH+'/assets/pipeline_test_psqp_opt.json',
+                  'r') as inputfile:
+            PSQP_MIN = json.load(inputfile)
+        with open(ASSET_PATH+'/assets/pipeline_test_trf_opt.json',
+                  'r') as inputfile:
+            TRF_MIN = json.load(inputfile)
+        with open(ASSET_PATH+'/assets/pipeline_test_bfgs_opt.json',
+                  'r') as inputfile:
+            BFGS_MIN = json.load(inputfile)
+        with open(ASSET_PATH+'/assets/pipeline_test_lm_opt.json',
+                  'r') as inputfile:
+            LM_MIN = json.load(inputfile)
+        if ARGS['lm']+ARGS['bfgs']+ARGS['trf'] > 1:
+            raise ValueError('Only one method allowed among TRF, BFGS and LM.')
         MAIN_MIN = TRF_MIN
-    elif ARGS['bfgs']:
-        MAIN_MIN = BFGS_MIN
-    if ARGS['reg']:
-        if ARGS['lumen']:
-            N, O_R, MAIN, ENER, INIT = run_r_l_optimization(TH, EXP, ENER_MIN,
-                                                            MAIN_MIN, INIT_MIN)
+        INIT_MIN = None
+        if ARGS['psqp']:
+            MAIN_MIN = PSQP_MIN
+            if ARGS['lm']:
+                INIT_MIN = LM_MIN
+            if ARGS['bfgs']:
+                INIT_MIN = BFGS_MIN
+            else:
+                INIT_MIN = TRF_MIN
+        elif ARGS['lm']:
+            MAIN_MIN = LM_MIN
+        elif ARGS['trf']:
+            MAIN_MIN = TRF_MIN
+        elif ARGS['bfgs']:
+            MAIN_MIN = BFGS_MIN
+        if ARGS['reg']:
+            if ARGS['lumen']:
+                N, O_R = run_r_l_optimization(TH, EXP, ENER_MIN,
+                                              MAIN_MIN, INIT_MIN)
+            else:
+                N, O_R = run_r_nl_optimization(TH, EXP, ENER_MIN,
+                                               MAIN_MIN, INIT_MIN)
         else:
-            N, O_R, MAIN, ENER, INIT = run_r_nl_optimization(TH, EXP, ENER_MIN,
-                                                             MAIN_MIN, INIT_MIN)
-    else:
-        if ARGS['lumen']:
-            N, O_R, MAIN, ENER, INIT = run_nr_l_optimization(TH, EXP, ENER_MIN,
-                                                             MAIN_MIN, INIT_MIN)
-        else:
-            N, O_R, MAIN, ENER, INIT = run_nr_nl_optimization(TH, EXP, ENER_MIN,
-                                                              MAIN_MIN, INIT_MIN)
-    save_optimization_results(N, TH, O_R, MAIN, ENER,
-                              ARGS['reg'], ARGS['lumen'], INIT)
+            if ARGS['lumen']:
+                N, O_R = run_nr_l_optimization(TH, EXP, ENER_MIN,
+                                               MAIN_MIN, INIT_MIN)
+            else:
+                N, O_R = run_nr_nl_optimization(TH, EXP, ENER_MIN,
+                                                MAIN_MIN, INIT_MIN)
+        save_optimization_results(N, TH, O_R, MAIN_MIN, ENER_MIN, ARGS['reg'],
+                                  ARGS['lumen'], ASSET_PATH, seed, INIT_MIN)
