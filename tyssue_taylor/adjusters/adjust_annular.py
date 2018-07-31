@@ -201,7 +201,7 @@ def _create_pyOpt_model(obj_fun, initial_guess, main_min_opt):
                          value=initial_guess, lower=main_min_opt['lb'],
                          upper=main_min_opt['ub'])
     opt_prob.addCon('distance', 'i')
-    opt_prob.addConGroup('bounds', 'i')
+    opt_prob.addConGroup('bounds', len(initial_guess), 'i')
     return opt_prob
 
 
