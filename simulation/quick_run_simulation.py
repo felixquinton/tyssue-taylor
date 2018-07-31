@@ -130,7 +130,7 @@ def save_optimization_results(exp_organo, th_organo, opt_res, main_opt_options,
       all fields from scipy OptimizeResults or pyOpt res except for jac, grad,
       active_mask (if applicable)
       res_time : the solving time of the optimization process
-      tension_error : the element wise error between the true tension vector
+      tension_error : the element wise error between thpipeline_test_theoritical_organo.hdf5e true tension vector
       and the optimization result
       git_revision : the git version of the source code used for the
       optimization
@@ -155,8 +155,19 @@ def save_optimization_results(exp_organo, th_organo, opt_res, main_opt_options,
         reg_txt = 'r'
     if is_lumen:
         lum_txt = 'l'
-    local_path = dir_path+'/'+main_opt_options['method']+'_'+reg_txt+'_'+lum_txt
+    local_path = dir_path+'/simulation/'+main_opt_options['method']+\
+                 '_'+reg_txt+'_'+lum_txt
     os.makedirs(local_path, exist_ok=True)
+
+    for ind in opt_res:
+        if isinstance(opt_res[ind], np.ndarray):
+            opt_res[ind] = list(opt_res[ind])
+        elif isinstance(opt_res[ind], np.int64):
+            opt_res[ind] = np.float(opt_res[ind])
+    if not opt_res.get('jac', None) is None:
+        del opt_res['jac']
+    if not opt_res.get('active_mask', None) is None:
+        del opt_res['active_mask']
     save_datasets(local_path+'/exp_organo'+str(seed)+'.hdf5', exp_organo)
     with open(local_path+'/exp_organo_settings'+str(seed)+'.json',
               'w+') as outfile:
@@ -169,6 +180,8 @@ def save_optimization_results(exp_organo, th_organo, opt_res, main_opt_options,
     if not initial_opt_options is None:
         initial_opt_options['bounds'] = list(initial_opt_options.get('bounds',
                                                                      None))
+        if not initial_opt_options.get('verbose', None) is None:
+            del initial_opt_options['verbose']
         with open(local_path+'/exp_organo_initial_opt_options.json',
                   'w+') as outfile:
             json.dump(initial_opt_options, outfile)
@@ -177,7 +190,8 @@ def save_optimization_results(exp_organo, th_organo, opt_res, main_opt_options,
         json.dump(energy_opt_options, outfile)
     print_tensions(exp_organo, th_organo, True,
                    local_path+'/exp_organo'+str(seed)+'.png')
-    shutil.make_archive('./exp_res', format='zip', base_dir=local_path)
+    #shutil.make_archive(local_path+'/exp_res'+str(seed), format='zip',
+    #                    base_dir=local_path)
 
 
 
@@ -221,15 +235,7 @@ def run_nr_nl_optimization(organo, noisy, energy_min, main_min,
     Solver.find_energy_min(noisy, geom, model)
     res_time = time.clock()-start
     tension_error = np.divide((initial_guess-res_x), initial_guess)
-    for ind in res:
-        print(ind, type(res[ind]))
-        if isinstance(res[ind], np.ndarray):
-            res[ind] = list(res[ind])
-        elif isinstance(res[ind], np.int64):
-            res[ind] = np.float(res[ind])
     opt_res = res
-    del opt_res['jac']
-    del opt_res['active_mask']
     opt_res['res_time'] = res_time
     opt_res['tension_error'] = list(tension_error)
     opt_res['git_revision'] = version.git_revision
@@ -286,15 +292,7 @@ def run_nr_l_optimization(organo, noisy, energy_min, main_min,
     Solver.find_energy_min(noisy, geom, model)
     res_time = time.clock()-start
     tension_error = np.divide((initial_guess-res_x), initial_guess)
-    for ind in res:
-        print(ind, type(res[ind]))
-        if isinstance(res[ind], np.ndarray):
-            res[ind] = list(res[ind])
-        elif isinstance(res[ind], np.int64):
-            res[ind] = np.float(res[ind])
     opt_res = res
-    del opt_res['jac']
-    del opt_res['active_mask']
     opt_res['res_time'] = res_time
     opt_res['tension_error'] = list(tension_error)
     opt_res['git_revision'] = version.git_revision
@@ -343,15 +341,7 @@ def run_r_nl_optimization(organo, noisy, energy_min, main_min,
     Solver.find_energy_min(noisy, geom, model)
     res_time = time.clock()-start
     tension_error = np.divide((initial_guess-res_x), initial_guess)
-    for ind in res:
-        print(ind, type(res[ind]))
-        if isinstance(res[ind], np.ndarray):
-            res[ind] = list(res[ind])
-        elif isinstance(res[ind], np.int64):
-            res[ind] = np.float(res[ind])
     opt_res = res
-    del opt_res['jac']
-    del opt_res['active_mask']
     opt_res['res_time'] = res_time
     opt_res['tension_error'] = list(tension_error)
     opt_res['git_revision'] = version.git_revision
@@ -384,6 +374,7 @@ def run_r_l_optimization(organo, noisy, energy_min, main_min,
     noisy: class AnnularSheet
     the experimental organoid after the optimization process
     opt_res: dictionnary
+        print(ind, type(res[ind]))
     dictionnary containing relevant info on the optimization process. Fit to
     the requirements of save_optimization_resultsself.
 
@@ -402,7 +393,7 @@ def run_r_l_optimization(organo, noisy, energy_min, main_min,
             main_min['bounds'][1].append(1e6)
     start = time.clock()
     res = adjust_tensions(noisy, initial_guess,
-                          {'dic':{'basal': True, 'apical': True}, 'weight':0.1},
+                          {'dic':{'basal': True, 'apical': True}, 'weight':0.001},
                           energy_min, initial_min, **main_min)
     if main_min['method'] == 'PSQP':
         res_x = res['x']
@@ -412,15 +403,7 @@ def run_r_l_optimization(organo, noisy, energy_min, main_min,
     Solver.find_energy_min(noisy, geom, model)
     res_time = time.clock()-start
     tension_error = np.divide((initial_guess-res_x), initial_guess)
-    for ind in res:
-        print(ind, type(res[ind]))
-        if isinstance(res[ind], np.ndarray):
-            res[ind] = list(res[ind])
-        elif isinstance(res[ind], np.int64):
-            res[ind] = np.float(res[ind])
     opt_res = res
-    del opt_res['jac']
-    del opt_res['active_mask']
     opt_res['res_time'] = res_time
     opt_res['tension_error'] = list(tension_error)
     opt_res['git_revision'] = version.git_revision
@@ -436,6 +419,8 @@ if __name__ == '__main__':
 
     PARSER = argparse.ArgumentParser(description='Adjust line tensions')
     PARSER.add_argument('--psqp', action='store_true',
+                        help='indicates if the solver must use PSQP.')
+    PARSER.add_argument('--dist_psqp', action='store_true',
                         help='indicates if the solver must use PSQP.')
     PARSER.add_argument('--bfgs', action='store_true',
                         help='indicates if the solver must use BFGS.')
@@ -454,11 +439,12 @@ if __name__ == '__main__':
                         help='number of instances to load and solve')
     ARGS = vars(PARSER.parse_args())
 
-    for seed in LIST_SEED[:ARGS['nb_rep']]:
+    for SEED in LIST_SEED[:ARGS['nb_rep']]:
+        print('Solving for random seed '+str(SEED)+'.')
         PATH_HFD5 = ASSET_PATH+'/assets/benchmark_instances/pipeline_test_'+\
-                               'theoritical_organo'+str(seed)+'.hdf5'
+                               'theoritical_organo'+str(SEED)+'.hdf5'
         PATH_JSON = ASSET_PATH+'/assets/benchmark_instances/pipeline_test_'+\
-                               'theoritical_organo_specs'+str(seed)+'.json'
+                               'theoritical_organo_specs'+str(SEED)+'.json'
         TH, EXP = replicate_organo_from_file(PATH_HFD5, PATH_JSON)
         with open(ASSET_PATH+'/assets/pipeline_test_energy_opt.json',
                   'r') as inputfile:
@@ -479,11 +465,13 @@ if __name__ == '__main__':
             raise ValueError('Only one method allowed among TRF, BFGS and LM.')
         MAIN_MIN = TRF_MIN
         INIT_MIN = None
-        if ARGS['psqp']:
+        if ARGS['psqp'] or ARGS['dist_psqp']:
             MAIN_MIN = PSQP_MIN
+            if ARGS['dist_psqp']:
+                MAIN_MIN['method'] = 'dist_PSQP'
             if ARGS['lm']:
                 INIT_MIN = LM_MIN
-            if ARGS['bfgs']:
+            elif ARGS['bfgs']:
                 INIT_MIN = BFGS_MIN
             else:
                 INIT_MIN = TRF_MIN
@@ -508,4 +496,4 @@ if __name__ == '__main__':
                 N, O_R = run_nr_nl_optimization(TH, EXP, ENER_MIN,
                                                 MAIN_MIN, INIT_MIN)
         save_optimization_results(N, TH, O_R, MAIN_MIN, ENER_MIN, ARGS['reg'],
-                                  ARGS['lumen'], ASSET_PATH, seed, INIT_MIN)
+                                  ARGS['lumen'], ASSET_PATH, SEED, INIT_MIN)
