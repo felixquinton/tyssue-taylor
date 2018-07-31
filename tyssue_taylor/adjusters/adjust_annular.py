@@ -80,17 +80,50 @@ def adjust_tensions(organo, initial_guess, regularization,
             #print(f"Initial point found with distance {initial_point.fun[0]}\n\
             #Starting the energy minimization.")
             initial_guess = initial_point.x
+            initial_ener = _opt_ener(initial_guess, organo, **energy_min_opt)
+            opt_prob = _create_pyOpt_model(_wrap_obj_and_const, initial_guess,
+                                           main_min_opt)
+            psqp = pyOpt.PSQP()
+            psqp.setOption('IPRINT', 2)
+            psqp.setOption('IFILE', main_min_opt.get('output_path', 'PSQP.out'))
+            print(opt_prob)
+
+            [fstr, xstr, inform] = psqp(opt_prob, sens_type='FD',
+                                        disp_opts=True,
+                                        sens_mode='parallel',
+                                        pb_obj='min_ener',
+                                        organo=organo,
+                                        regularization=regularization,
+                                        initial_dist=initial_ener,
+                                        minimize_opt=minimize_opt)
+            return {'fun': fstr, 'x': xstr, 'message': inform}
+        print(f"Initial point search failed with message :\
+              \nf{initial_point.message}")
+    elif main_min_opt['method'] == 'dist_PSQP':
+        #print("Starting the search for the initial point")
+        initial_point = least_squares(_opt_dist, initial_guess,
+                                      **initial_min_opt,
+                                      args=(organo, regularization),
+                                      kwargs=minimize_opt)
+        if initial_point.success:
+            #print(f"Initial point found with distance {initial_point.fun[0]}\n\
+            #Starting the energy minimization.")
+            initial_guess = initial_point.x
             initial_dist = initial_point.fun
             opt_prob = _create_pyOpt_model(_wrap_obj_and_const, initial_guess,
                                            main_min_opt)
             psqp = pyOpt.PSQP()
             psqp.setOption('IPRINT', 2)
+            psqp.setOption('IFILE', main_min_opt.get('output_path', 'PSQP.out'))
+            print(opt_prob)
 
             [fstr, xstr, inform] = psqp(opt_prob, sens_type='FD',
-                                        sens_mode='pgc',
+                                        disp_opts=True,
+                                        sens_mode='parallel',
+                                        pb_obj='min_dist',
                                         organo=organo,
                                         regularization=regularization,
-                                        initial_dist=initial_dist,
+                                        initial_ener=initial_dist,
                                         minimize_opt=minimize_opt)
             return {'fun': fstr, 'x': xstr, 'message': inform}
         print(f"Initial point search failed with message :\
@@ -103,7 +136,6 @@ def adjust_tensions(organo, initial_guess, regularization,
 
 def _opt_dist(tension_array, organo, regularization,
               **minimize_opt):
-
     tmp_organo = organo.copy()
     variables = {}
     tensions = prepare_tensions(tmp_organo, tension_array[:3*tmp_organo.Nf])
@@ -121,23 +153,12 @@ def _opt_dist(tension_array, organo, regularization,
 
 def _cst_dist(tension_array, organo, initial_dist, regularization,
               **minimize_opt):
-
-    tmp_organo = organo.copy()
-    variables = {}
-    tensions = prepare_tensions(organo, tension_array[:3*tmp_organo.Nf])
-    variables[('edge', 'line_tension')] = tensions
-    if len(tension_array) > 3*tmp_organo.Nf:
-        lumen_volume = tension_array[3*tmp_organo.Nf]
-        variables[('lumen_prefered_vol', None)] = lumen_volume
-    error = distance_regularized(tmp_organo, organo, variables,
-                                 regularization['dic'],
-                                 regularization['weight'],
-                                 solver, geom, model,
-                                 **minimize_opt)
-    return  initial_dist - error.sum()
+    error = _opt_dist(tension_array, organo, regularization,
+                  **minimize_opt)
+    bounds = list(-tension_array)
+    return  [2*initial_dist - error.sum()] + bounds
 
 def _opt_ener(tension_array, organo, **minimize_opt):
-
     tmp_organo = organo.copy()
     variables = {}
     tensions = prepare_tensions(organo, tension_array[:3*tmp_organo.Nf])
@@ -149,26 +170,46 @@ def _opt_ener(tension_array, organo, **minimize_opt):
                          **minimize_opt)
     return energy_min
 
+def _cst_ener(tension_array, organo, initial_ener,
+              **minimize_opt):
+    ener = _opt_ener(tension_array, organo, **minimize_opt)
+    bounds = list(-tension_array)
+    return  [0.5*initial_ener - ener] + bounds
+
 def _wrap_obj_and_const(tension_array, **kwargs):
-    fun = _opt_ener(tension_array, kwargs['organo'], **kwargs['minimize_opt'])
-    const = -_cst_dist(tension_array, kwargs['organo'], kwargs['initial_dist'],
-                       kwargs['regularization'], **kwargs['minimize_opt'])
-    fail = 0
+    if kwargs['pb_obj'] == 'min_ener':
+        fun = _opt_ener(tension_array, kwargs['organo'], **kwargs['minimize_opt'])
+        const = _cst_dist(tension_array, kwargs['organo'], kwargs['initial_dist'],
+                          kwargs['regularization'], **kwargs['minimize_opt'])
+        fail = 0
+    elif kwargs['pb_obj'] == 'min_dist':
+        fun = _opt_dist(tension_array, kwargs['organo'], kwargs['regularization'],
+                        **kwargs['minimize_opt'])
+        const = _cst_ener(tension_array, kwargs['organo'], kwargs['initial_ener'],
+                          **kwargs['minimize_opt'])
+        fail = 0
+    else:
+        fun = lambda x: x
+        const = lambda x: x
+        fail = 1
     return fun, const, fail
 
 def _create_pyOpt_model(obj_fun, initial_guess, main_min_opt):
     opt_prob = pyOpt.Optimization('Energy minimization problem', obj_fun)
-    opt_prob.addObj('energy')
+    opt_prob.addObj('energy', optimum=0.0)
     opt_prob.addVarGroup('L', len(initial_guess), 'c',
                          value=initial_guess, lower=main_min_opt['lb'],
                          upper=main_min_opt['ub'])
     opt_prob.addCon('distance', 'i')
+    opt_prob.addConGroup('bounds', 'i')
     return opt_prob
 
 
 def _obj_bfgs(initial_guess, organo, regularization, minimize_opt):
-    return np.sum(_opt_dist(initial_guess, organo, regularization,
+    dist = np.sum(_opt_dist(initial_guess, organo, regularization,
                             **minimize_opt))
+    ener = _opt_ener(initial_guess, organo, **minimize_opt)
+    return dist + ener
 
 def prepare_tensions(organo, tension_array):
     """Match the tension in a reduced array to an organo dataset
