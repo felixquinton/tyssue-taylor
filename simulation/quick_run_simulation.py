@@ -8,9 +8,11 @@ import time
 import json
 import os
 import argparse
-import shutil
+#import shutil
 import numpy as np
 import matplotlib.pyplot as plt
+
+from scipy import stats
 
 from tyssue.solvers.sheet_vertex_solver import Solver
 from tyssue.io.hdf5 import load_datasets, save_datasets
@@ -19,7 +21,8 @@ from tyssue.config.draw import sheet_spec
 from tyssue.draw.plt_draw import sheet_view, quick_edge_draw
 
 from tyssue_taylor.adjusters.adjust_annular import (prepare_tensions,
-                                                    adjust_tensions)
+                                                    adjust_tensions,
+                                                    set_init_point)
 from tyssue_taylor.models.annular import AnnularGeometry as geom
 from tyssue_taylor.models.annular import model
 from tyssue_taylor import version
@@ -81,7 +84,7 @@ def get_normal_from_seed(seed, mu, theta, shape):
     np.random.seed(seed)
     return np.random.normal(mu, theta, shape)
 
-def replicate_organo_from_file(path_hdf5, path_json):
+def replicate_organo_from_file(path_hdf5, path_json, thet):
     """Read and hdf5 file and a json file to create the theoritical and
      experimental organoids.
 
@@ -104,14 +107,17 @@ def replicate_organo_from_file(path_hdf5, path_json):
     th_organo = AnnularSheet('theoritical', dsets)
     with open(path_json, 'r') as file:
         dic = json.load(file)
-        seed = dic['seed']
-        theta = dic['theta']
+        #seed = dic['seed']
+        #theta = dic['theta']
         del dic['seed']
         del dic['theta']
         specs = dic
-    th_organo.update_specs(specs, reset=True)
+    th_organo.settings['R_in'] = 1.9896728355976676
+    th_organo.settings['R_out'] = 2.713190230360456
+    th_organo.update_specs(specs, reset=False)
     exp_organo = th_organo.copy()
-    random_sequence = get_normal_from_seed(seed, 1.0, theta, (exp_organo.Nv, 2))
+    random_sequence = np.random.normal(1, thet,
+                                       exp_organo.vert_df.loc[:, exp_organo.coords].values.shape)
     exp_organo.vert_df.loc[:, exp_organo.coords] *= random_sequence
     geom.update_all(exp_organo)
     return th_organo, exp_organo
@@ -130,7 +136,8 @@ def save_optimization_results(exp_organo, th_organo, opt_res, main_opt_options,
       all fields from scipy OptimizeResults or pyOpt res except for jac, grad,
       active_mask (if applicable)
       res_time : the solving time of the optimization process
-      tension_error : the element wise error between thpipeline_test_theoritical_organo.hdf5e true tension vector
+      tension_error : the element wise error between thpipeline_test_theoritical_organo.hdf5
+                      true tension vector
       and the optimization result
       git_revision : the git version of the source code used for the
       optimization
@@ -195,7 +202,7 @@ def save_optimization_results(exp_organo, th_organo, opt_res, main_opt_options,
 
 
 
-def run_nr_nl_optimization(organo, noisy, energy_min, main_min,
+def run_nr_nl_optimization(organo, noisy, thet, energy_min, main_min,
                            initial_min=None):
     """Run the optimization process when lumen volume is not a parameter and
     there is no regularization module.
@@ -223,7 +230,11 @@ def run_nr_nl_optimization(organo, noisy, energy_min, main_min,
 
     ----------
     """
-    initial_guess = organo.edge_df.line_tension[:3*organo.Nf].values.copy()
+    alpha = 1 + 1/(20*(organo.settings['R_out']-organo.settings['R_in']))
+    true_tensions = organo.edge_df.line_tension[:3*organo.Nf].values
+    #initial_guess = true_tensions * np.random.normal(1, thet,
+    #                                                 true_tensions.shape)
+    initial_guess = true_tensions
     start = time.clock()
     res = adjust_tensions(noisy, initial_guess, {'dic':{}, 'weight':0},
                           energy_min, initial_min, **main_min)
@@ -234,11 +245,17 @@ def run_nr_nl_optimization(organo, noisy, energy_min, main_min,
     noisy.edge_df.line_tension = prepare_tensions(noisy, res_x)
     Solver.find_energy_min(noisy, geom, model)
     res_time = time.clock()-start
-    tension_error = np.divide((initial_guess-res_x), initial_guess)
+    tension_error = np.divide(true_tensions-res_x,
+                              np.full(true_tensions.shape, np.mean(true_tensions)))
     opt_res = res
     opt_res['res_time'] = res_time
     opt_res['tension_error'] = list(tension_error)
     opt_res['git_revision'] = version.git_revision
+    var_tens = np.divide(np.abs(true_tensions-res_x),
+                         np.full(true_tensions.shape, np.mean(true_tensions)))
+
+    #(slope, intercept, r_value, p_value, std_err)
+    opt_res['linregress'] = list(stats.linregress(true_tensions, var_tens))
 
     return noisy, opt_res
 
@@ -270,7 +287,11 @@ def run_nr_l_optimization(organo, noisy, energy_min, main_min,
 
     ----------
     """
-    initial_guess = organo.edge_df.line_tension[:3*organo.Nf].values.copy()
+    alpha = 1 + 1/(20*(organo.settings['R_out']-organo.settings['R_in']))
+    initial_guess = set_init_point(organo.settings['R_in'],
+                                   organo.settings['R_out'],
+                                   organo.Nf,
+                                   alpha)
     initial_guess = np.concatenate((initial_guess,
                                     [organo.settings['lumen_volume']]))
     start = time.clock()
@@ -296,7 +317,12 @@ def run_nr_l_optimization(organo, noisy, energy_min, main_min,
     opt_res['res_time'] = res_time
     opt_res['tension_error'] = list(tension_error)
     opt_res['git_revision'] = version.git_revision
+    true_tensions = organo.edge_df.line_tension[:3*organo.Nf].values
+    var_tens = np.divide(np.abs(true_tensions-res_x),
+                         np.full(true_tensions.shape, np.mean(true_tensions)))
 
+    #(slope, intercept, r_value, p_value, std_err)
+    opt_res['linregress'] = list(stats.linregress(true_tensions, var_tens))
     return noisy, opt_res
 
 
@@ -328,7 +354,11 @@ def run_r_nl_optimization(organo, noisy, energy_min, main_min,
 
     ----------
     """
-    initial_guess = organo.edge_df.line_tension[:3*organo.Nf].values.copy()
+    alpha = 1 + 1/(20*(organo.settings['R_out']-organo.settings['R_in']))
+    initial_guess = set_init_point(organo.settings['R_in'],
+                                   organo.settings['R_out'],
+                                   organo.Nf,
+                                   alpha)
     start = time.clock()
     res = adjust_tensions(noisy, initial_guess,
                           {'dic':{'basal': True, 'apical': True}, 'weight':0.001},
@@ -345,7 +375,12 @@ def run_r_nl_optimization(organo, noisy, energy_min, main_min,
     opt_res['res_time'] = res_time
     opt_res['tension_error'] = list(tension_error)
     opt_res['git_revision'] = version.git_revision
+    true_tensions = organo.edge_df.line_tension[:3*organo.Nf].values
+    var_tens = np.divide(np.abs(true_tensions-res_x),
+                         np.full(true_tensions.shape, np.mean(true_tensions)))
 
+    #(slope, intercept, r_value, p_value, std_err)
+    opt_res['linregress'] = list(stats.linregress(true_tensions, var_tens))
 
     return noisy, opt_res
 
@@ -380,7 +415,11 @@ def run_r_l_optimization(organo, noisy, energy_min, main_min,
 
     ----------
     """
-    initial_guess = organo.edge_df.line_tension[:3*organo.Nf].values.copy()
+    alpha = 1 + 1/(20*(organo.settings['R_out']-organo.settings['R_in']))
+    initial_guess = set_init_point(organo.settings['R_in'],
+                                   organo.settings['R_out'],
+                                   organo.Nf,
+                                   alpha)
     initial_guess = np.concatenate((initial_guess,
                                     [organo.settings['lumen_volume']]))
     if not initial_min is None:
@@ -407,6 +446,12 @@ def run_r_l_optimization(organo, noisy, energy_min, main_min,
     opt_res['res_time'] = res_time
     opt_res['tension_error'] = list(tension_error)
     opt_res['git_revision'] = version.git_revision
+    true_tensions = organo.edge_df.line_tension[:3*organo.Nf].values
+    var_tens = np.divide(np.abs(true_tensions-res_x),
+                         np.full(true_tensions.shape, np.mean(true_tensions)))
+
+    #(slope, intercept, r_value, p_value, std_err)
+    opt_res['linregress'] = list(stats.linregress(true_tensions, var_tens))
 
     return noisy, opt_res
 
@@ -439,61 +484,63 @@ if __name__ == '__main__':
                         help='number of instances to load and solve')
     ARGS = vars(PARSER.parse_args())
 
-    for SEED in LIST_SEED[:ARGS['nb_rep']]:
-        print('Solving for random seed '+str(SEED)+'.')
-        PATH_HFD5 = ASSET_PATH+'/assets/benchmark_instances/pipeline_test_'+\
-                               'theoritical_organo'+str(SEED)+'.hdf5'
-        PATH_JSON = ASSET_PATH+'/assets/benchmark_instances/pipeline_test_'+\
-                               'theoritical_organo_specs'+str(SEED)+'.json'
-        TH, EXP = replicate_organo_from_file(PATH_HFD5, PATH_JSON)
-        with open(ASSET_PATH+'/assets/pipeline_test_energy_opt.json',
-                  'r') as inputfile:
-            ENER_MIN = json.load(inputfile)
-        with open(ASSET_PATH+'/assets/pipeline_test_psqp_opt.json',
-                  'r') as inputfile:
-            PSQP_MIN = json.load(inputfile)
-        with open(ASSET_PATH+'/assets/pipeline_test_trf_opt.json',
-                  'r') as inputfile:
-            TRF_MIN = json.load(inputfile)
-        with open(ASSET_PATH+'/assets/pipeline_test_bfgs_opt.json',
-                  'r') as inputfile:
-            BFGS_MIN = json.load(inputfile)
-        with open(ASSET_PATH+'/assets/pipeline_test_lm_opt.json',
-                  'r') as inputfile:
-            LM_MIN = json.load(inputfile)
-        if ARGS['lm']+ARGS['bfgs']+ARGS['trf'] > 1:
-            raise ValueError('Only one method allowed among TRF, BFGS and LM.')
-        MAIN_MIN = TRF_MIN
-        INIT_MIN = None
-        if ARGS['psqp'] or ARGS['dist_psqp']:
-            MAIN_MIN = PSQP_MIN
-            if ARGS['dist_psqp']:
-                MAIN_MIN['method'] = 'dist_PSQP'
-            if ARGS['lm']:
-                INIT_MIN = LM_MIN
-            elif ARGS['bfgs']:
-                INIT_MIN = BFGS_MIN
-            else:
-                INIT_MIN = TRF_MIN
-        elif ARGS['lm']:
-            MAIN_MIN = LM_MIN
-        elif ARGS['trf']:
+    for theta in np.linspace(0, 0.1, 11):
+        for SEED in LIST_SEED[:ARGS['nb_rep']]:
+            print('Solving for random seed '+str(SEED)+' and theta '+str(theta)+'.')
+            PATH_HFD5 = ASSET_PATH+'/assets/benchmark_instances/pipeline_test_'+\
+                                   'theoritical_organo'+str(SEED)+'.hdf5'
+            PATH_JSON = ASSET_PATH+'/assets/benchmark_instances/pipeline_test_'+\
+                                   'theoritical_organo_specs'+str(SEED)+'.json'
+            TH, EXP = replicate_organo_from_file(PATH_HFD5, PATH_JSON, theta)
+            with open(ASSET_PATH+'/assets/pipeline_test_energy_opt.json',
+                      'r') as inputfile:
+                ENER_MIN = json.load(inputfile)
+            with open(ASSET_PATH+'/assets/pipeline_test_psqp_opt.json',
+                      'r') as inputfile:
+                PSQP_MIN = json.load(inputfile)
+            with open(ASSET_PATH+'/assets/pipeline_test_trf_opt.json',
+                      'r') as inputfile:
+                TRF_MIN = json.load(inputfile)
+            with open(ASSET_PATH+'/assets/pipeline_test_bfgs_opt.json',
+                      'r') as inputfile:
+                BFGS_MIN = json.load(inputfile)
+            with open(ASSET_PATH+'/assets/pipeline_test_lm_opt.json',
+                      'r') as inputfile:
+                LM_MIN = json.load(inputfile)
+            if ARGS['lm']+ARGS['bfgs']+ARGS['trf'] > 1:
+                raise ValueError('Only one method allowed among TRF, BFGS and LM.')
             MAIN_MIN = TRF_MIN
-        elif ARGS['bfgs']:
-            MAIN_MIN = BFGS_MIN
-        if ARGS['reg']:
-            if ARGS['lumen']:
-                N, O_R = run_r_l_optimization(TH, EXP, ENER_MIN,
-                                              MAIN_MIN, INIT_MIN)
+            INIT_MIN = None
+            if ARGS['psqp'] or ARGS['dist_psqp']:
+                MAIN_MIN = PSQP_MIN
+                if ARGS['dist_psqp']:
+                    MAIN_MIN['method'] = 'dist_PSQP'
+                if ARGS['lm']:
+                    INIT_MIN = LM_MIN
+                elif ARGS['bfgs']:
+                    INIT_MIN = BFGS_MIN
+                else:
+                    INIT_MIN = TRF_MIN
+            elif ARGS['lm']:
+                MAIN_MIN = LM_MIN
+            elif ARGS['trf']:
+                MAIN_MIN = TRF_MIN
+            elif ARGS['bfgs']:
+                MAIN_MIN = BFGS_MIN
+            if ARGS['reg']:
+                if ARGS['lumen']:
+                    N, O_R = run_r_l_optimization(TH, EXP, ENER_MIN,
+                                                  MAIN_MIN, INIT_MIN)
+                else:
+                    N, O_R = run_r_nl_optimization(TH, EXP, ENER_MIN,
+                                                   MAIN_MIN, INIT_MIN)
             else:
-                N, O_R = run_r_nl_optimization(TH, EXP, ENER_MIN,
-                                               MAIN_MIN, INIT_MIN)
-        else:
-            if ARGS['lumen']:
-                N, O_R = run_nr_l_optimization(TH, EXP, ENER_MIN,
-                                               MAIN_MIN, INIT_MIN)
-            else:
-                N, O_R = run_nr_nl_optimization(TH, EXP, ENER_MIN,
-                                                MAIN_MIN, INIT_MIN)
-        save_optimization_results(N, TH, O_R, MAIN_MIN, ENER_MIN, ARGS['reg'],
-                                  ARGS['lumen'], ASSET_PATH, SEED, INIT_MIN)
+                if ARGS['lumen']:
+                    N, O_R = run_nr_l_optimization(TH, EXP, ENER_MIN,
+                                                   MAIN_MIN, INIT_MIN)
+                else:
+                    N, O_R = run_nr_nl_optimization(TH, EXP, theta, ENER_MIN,
+                                                    MAIN_MIN, INIT_MIN)
+            SAVE_PATH = ASSET_PATH + '_serror_' + str(theta)
+            save_optimization_results(N, TH, O_R, MAIN_MIN, ENER_MIN, ARGS['reg'],
+                                      ARGS['lumen'], SAVE_PATH, SEED, INIT_MIN)

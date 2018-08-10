@@ -80,4 +80,4 @@ def _tension_bounds(actual_eptm, coords=None):
     tension_lb = -np.minimum(tensions, np.zeros(3*actual_eptm.Nf))
     tension_ub = np.zeros(3*actual_eptm.Nf)
     tension_ub[tensions > 1e3] = tensions[tensions > 1e3] - 1e3
-    return np.power((tension_lb + tension_ub), np.full(tension_lb.shape, 3))
+    return 1e3*np.power((tension_lb + tension_ub), np.full(tension_lb.shape, 3))
