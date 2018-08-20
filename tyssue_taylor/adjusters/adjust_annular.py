@@ -68,6 +68,7 @@ def adjust_tensions(eptm, initial_guess, regularization,
                             constraints=({'type': 'ineq', 'fun': _slsqp_cst,
                                           'args': (organo, initial_dist,
                                                    regularization)}),
+                            callback=_slsqp_cbk,
                             bounds=np.full((len(initial_guess), 2), (0, 10)),
                             **main_min_opt)
         print(f"Initial point search failed with message :\
@@ -163,13 +164,19 @@ def _cst_dist(tension_array, organo, initial_dist, regularization,
               **minimize_opt):
     error = _opt_dist(tension_array, organo, regularization,
                       **minimize_opt)[:2*organo.Nf]
+    initial_dist_table = 2*np.maximum(initial_dist[:2*organo.Nf],
+                                      np.full(2*organo.Nf, 0.1))
+    cst = list(initial_dist_table-error)
     bounds = list(-tension_array)
-    return  [2*initial_dist - error.sum()] + bounds
+    return  cst + bounds
 
 def _slsqp_cst(tension_array, organo, initial_dist, regularization,
                **minimize_opt):
     return _cst_dist(tension_array, organo, initial_dist, regularization,
-                     **minimize_opt)[0]
+                     **minimize_opt)[:2*organo.Nf]
+
+def _slsqp_cbk(tension_array):
+    print(tension_array)
 
 def _opt_ener(tension_array, organo, **minimize_opt):
     tmp_organo = organo.copy()
@@ -213,7 +220,7 @@ def _create_pyOpt_model(obj_fun, initial_guess, main_min_opt):
     opt_prob.addVarGroup('L', len(initial_guess), 'c',
                          value=initial_guess, lower=main_min_opt['lb'],
                          upper=main_min_opt['ub'])
-    opt_prob.addCon('distance', 'i')
+    opt_prob.addConGroup('distance', int(2/3*len(initial_guess)), 'i')
     opt_prob.addConGroup('bounds', len(initial_guess), 'i')
     return opt_prob
 

@@ -232,12 +232,14 @@ def run_nr_nl_optimization(organo, noisy, thet, energy_min, main_min,
     """
     alpha = 1 + 1/(20*(organo.settings['R_out']-organo.settings['R_in']))
     true_tensions = organo.edge_df.line_tension[:3*organo.Nf].values
+    print(true_tensions)
     #initial_guess = true_tensions * np.random.normal(1, thet,
     #                                                 true_tensions.shape)
     initial_guess = true_tensions
     start = time.clock()
     res = adjust_tensions(noisy, initial_guess, {'dic':{}, 'weight':0},
                           energy_min, initial_min, **main_min)
+    print(true_tensions)
     if main_min['method'] == 'PSQP':
         res_x = res['x']
     else:
