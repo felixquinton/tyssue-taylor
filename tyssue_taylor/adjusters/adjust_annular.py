@@ -68,7 +68,6 @@ def adjust_tensions(eptm, initial_guess, regularization,
                             constraints=({'type': 'ineq', 'fun': _slsqp_cst,
                                           'args': (organo, initial_dist,
                                                    regularization)}),
-                            callback=_slsqp_cbk,
                             bounds=np.full((len(initial_guess), 2), (0, 10)),
                             **main_min_opt)
         print(f"Initial point search failed with message :\
@@ -175,8 +174,6 @@ def _slsqp_cst(tension_array, organo, initial_dist, regularization,
     return _cst_dist(tension_array, organo, initial_dist, regularization,
                      **minimize_opt)[:2*organo.Nf]
 
-def _slsqp_cbk(tension_array):
-    print(tension_array)
 
 def _opt_ener(tension_array, organo, **minimize_opt):
     tmp_organo = organo.copy()

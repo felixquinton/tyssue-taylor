@@ -26,8 +26,8 @@ def test_tension_bounds():
     organo.edge_df.loc[(0, 1), 'line_tension'] = [-1, 2*1e3]
     penalties = _tension_bounds(organo)
     assert len(penalties) == 3*organo.Nf
-    assert penalties[0] == 1
-    assert penalties[1] == 1e9
+    assert penalties[0] == 1e3
+    assert penalties[1] == 1e12
     assert np.nonzero(penalties)[0].all() in [0, 1]
 
 def test_reg_module():

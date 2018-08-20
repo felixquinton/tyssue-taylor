@@ -105,17 +105,17 @@ def test_cst_dist():
     tension_array = organo.edge_df.loc[:, 'line_tension'][:3*organo.Nf]
     regularization = {'dic':{'apical' : True, 'basal': True},
                       'weight': 0.01}
-    initial_dist = 1
+    initial_dist = np.ones(2*organo.Nf)/(2*organo.Nf)
     energy_opt = {'options': {'gtol': 1e-1, 'ftol': 1e-1}}
     error = _cst_dist(tension_array, organo, initial_dist,
                       regularization, **energy_opt)
-    assert isinstance(error, float)
+    assert isinstance(error, list)
     tension_array = np.concatenate(
         (organo.edge_df.loc[:, 'line_tension'][:3*organo.Nf],
          [organo.settings['lumen_prefered_vol']]))
     error = _cst_dist(tension_array, organo, initial_dist,
                       regularization, **energy_opt)
-    assert isinstance(error, float)
+    assert isinstance(error, list)
 
 def test_opt_ener():
     organo = generate_ring(3, 1, 2)
@@ -189,11 +189,12 @@ def test_wrap_obj_and_const():
     energy_opt = {'options': {'gtol': 1e-1, 'ftol': 1e-1}}
     regularization = {'dic':{'apical' : True, 'basal': True},
                       'weight': 0.01}
-    kwargs = {'organo': organo, 'minimize_opt': energy_opt, 'initial_dist': 1,
-              'regularization': regularization}
+    kwargs = {'organo': organo, 'minimize_opt': energy_opt,
+              'initial_dist': np.ones(2*organo.Nf),
+              'regularization': regularization, 'pb_obj': 'min_ener'}
     res = _wrap_obj_and_const(tension_array, **kwargs)
-    assert res[0] > 0
-    assert res[1] > 0
+    assert np.array(res[0]).all() > 0
+    assert np.array(res[1]).all() > 0
     assert res[2] == 0
 
 def test_create_pyOpt_model():
