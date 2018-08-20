@@ -115,7 +115,7 @@ def extract_membranes(brightfield_path, threshold=28, blur=9):
                                                       centers, radii)
 
     inside = np.concatenate((inside, _fill_gaps(inside, 2)))
-    outside =  np.concatenate((outside, _fill_gaps(outside, 2)))
+    outside = np.concatenate((outside, _fill_gaps(outside, 2)))
 
     res_dic['raw_inside'] = inside
     res_dic['raw_outside'] = outside
@@ -154,9 +154,9 @@ def extract_nuclei(CP_dapi_path, center_inside, raw_inside, img_shape):
                                  (img_shape[0]/2.0, img_shape[1]/2.0))
     #delete doubled centers. np.unique does not do the job...
     #use a trick from https://stackoverflow.com/questions/16970982/find-unique-rows-in-numpy-array
-    x = []
-    [x.append(tuple(r)) for r in clockwise_centers if tuple(r) not in x]
-    clockwise_centers = np.array(x)
+    tmp = []
+    [tmp.append(tuple(r)) for r in clockwise_centers if tuple(r) not in tmp]
+    clockwise_centers = np.array(tmp)
     return clockwise_centers
 
 
@@ -368,7 +368,7 @@ def _find_closer_angle(theta0, theta1):
     return (dtheta**2).argmin(axis=0)
 
 def _fill_gaps(contour, gap_dist):
-    '''Finds the gaps in a contour from opencv findContours and
+    ''' !!! update :Finds the gaps in a contour from opencv findContours and
     fill it with a straight line.
 
     Parameters
