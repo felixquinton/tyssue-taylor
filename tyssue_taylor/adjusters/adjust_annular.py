@@ -84,7 +84,7 @@ def adjust_tensions(eptm, initial_guess, regularization,
             initial_guess = initial_point.x
             initial_ener = _opt_ener(initial_guess, organo, **energy_min_opt)
             opt_prob = _create_pyOpt_model(_wrap_obj_and_const, initial_guess,
-                                           main_min_opt)
+                                           main_min_opt, 'min_ener')
             psqp = pyOpt.PSQP()
             psqp.setOption('IPRINT', 2)
             psqp.setOption('IFILE', main_min_opt.get('output_path', 'PSQP.out'))
@@ -119,7 +119,7 @@ def adjust_tensions(eptm, initial_guess, regularization,
             solver.find_energy_min(init_eptm, geom, model)
             initial_dist = _distance(init_eptm, organo)
             opt_prob = _create_pyOpt_model(_wrap_obj_and_const, initial_guess,
-                                           main_min_opt)
+                                           main_min_opt, 'min_dist')
             psqp = pyOpt.PSQP()
             psqp.setOption('IPRINT', 2)
             psqp.setOption('IFILE', main_min_opt.get('output_path', 'PSQP.out'))
@@ -211,13 +211,21 @@ def _wrap_obj_and_const(tension_array, **kwargs):
         fail = 1
     return fun, const, fail
 
-def _create_pyOpt_model(obj_fun, initial_guess, main_min_opt):
-    opt_prob = pyOpt.Optimization('Energy minimization problem', obj_fun)
-    opt_prob.addObj('energy')
-    opt_prob.addVarGroup('L', len(initial_guess), 'c',
-                         value=initial_guess, lower=main_min_opt['lb'],
-                         upper=main_min_opt['ub'])
-    opt_prob.addConGroup('distance', int(2/3*len(initial_guess)), 'i')
+def _create_pyOpt_model(obj_fun, initial_guess, main_min_opt, pb_obj):
+    if pb_obj == 'min_ener':
+        opt_prob = pyOpt.Optimization('Energy minimization problem', obj_fun)
+        opt_prob.addObj('energy')
+        opt_prob.addVarGroup('L', len(initial_guess), 'c',
+                             value=initial_guess, lower=main_min_opt['lb'],
+                             upper=main_min_opt['ub'])
+        opt_prob.addConGroup('distance', int(2/3*len(initial_guess)), 'i')
+    elif pb_obj == 'min_dist':
+        opt_prob = pyOpt.Optimization('Distance minimization problem', obj_fun)
+        opt_prob.addObj('distance')
+        opt_prob.addVarGroup('L', len(initial_guess), 'c',
+                             value=initial_guess, lower=main_min_opt['lb'],
+                             upper=main_min_opt['ub'])
+        opt_prob.addCon('ener', 'i')
     opt_prob.addConGroup('bounds', len(initial_guess), 'i')
     return opt_prob
 
