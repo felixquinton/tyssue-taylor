@@ -201,7 +201,11 @@ def test_create_pyOpt_model():
     obj_fun = _opt_ener
     initial_guess = np.ones(9)
     main_min_opt = {'lb': 0, 'ub': 100, 'method': 'PSQP'}
-    assert isinstance(_create_pyOpt_model(obj_fun, initial_guess, main_min_opt),
+    assert isinstance(_create_pyOpt_model(obj_fun, initial_guess,
+                                          main_min_opt, 'min_ener'),
+                      pyOpt.pyOpt_optimization.Optimization)
+    assert isinstance(_create_pyOpt_model(obj_fun, initial_guess,
+                                          main_min_opt, 'min_dist'),
                       pyOpt.pyOpt_optimization.Optimization)
 
 def test_set_init_point():
