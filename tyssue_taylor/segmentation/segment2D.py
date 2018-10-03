@@ -68,7 +68,12 @@ def generate_ring_from_image(brightfield_path, dapi_path,
     organo.vert_df.loc[organo.basal_verts,
                        organo.coords] = (outer_vs[::-1]-np.full(
                            outer_vs.shape, org_center))*0.323
-    return organo, inners, outers
+    inners = (inners-np.full(inners.shape, org_center))*0.323
+    outers = (outers-np.full(outers.shape, org_center))*0.323
+    clockwise_centers = np.array(clockwise_centers)
+    clockwise_centers -= np.full(outer_vs.shape, org_center)
+    clockwise_centers *= 0.323
+    return organo, inners, outers, clockwise_centers
 
 
 def extract_membranes(brightfield_path, threshold=28, blur=9):

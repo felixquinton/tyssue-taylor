@@ -41,10 +41,12 @@ def adjust_tensions(eptm, initial_guess, regularization,
     """
     organo = eptm.copy()
     minimize_opt = config.solvers.minimize_spec()
+    print(minimize_opt)
 
     if energy_min_opt is not None:
-        minimize_opt.update(energy_min_opt)
-
+        minimize_opt['minimize']['options'] = \
+            energy_min_opt.get('options', minimize_opt['minimize']['options'])
+    print(minimize_opt)
     if main_min_opt['method'] == 'bfgs':
         return minimize(_obj_bfgs, initial_guess, **main_min_opt,
                         args=(organo, regularization, minimize_opt))
@@ -82,9 +84,9 @@ def adjust_tensions(eptm, initial_guess, regularization,
             #print(f"Initial point found with distance {initial_point.fun[0]}\n\
             #Starting the energy minimization.")
             initial_guess = initial_point.x
-            initial_ener = _opt_ener(initial_guess, organo, **energy_min_opt)
+            initial_dist = _distance(init_eptm, organo)
             opt_prob = _create_pyOpt_model(_wrap_obj_and_const, initial_guess,
-                                           main_min_opt, 'min_ener')
+                                           main_min_opt, 'min_dist')
             psqp = pyOpt.PSQP()
             psqp.setOption('IPRINT', 2)
             psqp.setOption('IFILE', main_min_opt.get('output_path', 'PSQP.out'))
@@ -96,7 +98,7 @@ def adjust_tensions(eptm, initial_guess, regularization,
                                         pb_obj='min_ener',
                                         organo=organo,
                                         regularization=regularization,
-                                        initial_dist=initial_ener,
+                                        initial_dist=initial_dist,
                                         minimize_opt=minimize_opt)
             return {'fun': fstr, 'x': xstr, 'message': inform}
         print(f"Initial point search failed with message :\
@@ -117,9 +119,9 @@ def adjust_tensions(eptm, initial_guess, regularization,
             init_eptm.edge_df.line_tension = prepare_tensions(init_eptm,
                                                               initial_guess)
             solver.find_energy_min(init_eptm, geom, model)
-            initial_dist = _distance(init_eptm, organo)
+            initial_ener = _opt_ener(initial_guess, organo, **energy_min_opt)
             opt_prob = _create_pyOpt_model(_wrap_obj_and_const, initial_guess,
-                                           main_min_opt, 'min_dist')
+                                           main_min_opt, 'min_ener')
             psqp = pyOpt.PSQP()
             psqp.setOption('IPRINT', 2)
             psqp.setOption('IFILE', main_min_opt.get('output_path', 'PSQP.out'))
@@ -131,7 +133,7 @@ def adjust_tensions(eptm, initial_guess, regularization,
                                         pb_obj='min_dist',
                                         organo=organo,
                                         regularization=regularization,
-                                        initial_ener=initial_dist,
+                                        initial_ener=initial_ener,
                                         minimize_opt=minimize_opt)
             return {'fun': fstr, 'x': xstr, 'message': inform}
         print(f"Initial point search failed with message :\
