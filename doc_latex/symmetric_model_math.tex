@@ -7,7 +7,7 @@
 \usepackage{amsfonts}
 \usepackage{amssymb}
 \usepackage{cite}
- 
+
 \title{Chapitre 1: Détermination des paramètres initiaux}
 
 \author{Félix Quinton}
@@ -33,7 +33,7 @@ Dans cette section, notre objectif sera de mettre en évidence une relation entr
 Pour ce faire, nous allons travailler sur le modèle symétrique, c'est à dire que les propriétés de toutes les cellules seront supposées identiques. Ainsi, nous avons à présent : $A_\alpha = A, A_\alpha^0 = A^0, K_\alpha = K, \forall \alpha \in \mathcal{A}$, et nous définissons $\Lambda_a, \Lambda_b, \Lambda_l$ les tensions sur les arcs apicaux, basaux et latéraux.
 
 Nous pouvons réécrire l'énergie comme suit :
-$$ 
+$$
 E_s = \frac{N_f K}{2}(A-A^0)^2 + N_f\Lambda_b\ell_b + N_f\Lambda_a\ell_a + 2N_f\Lambda_l\ell_l
 $$
 Cette expression peut être normalisée en divisant par $N_f$ et en fixant $K=1$. On obtient :
@@ -48,7 +48,7 @@ Sachant le rayon $R_b$ de l'anneau basal et le rayon $R_a$ de l'anneau apical, o
 \begin{align*}
     &\ell_l = R_b - R_a \\
     &\ell_a = 2R_a\sin\Big(\frac{\pi}{N_f}\Big) \\
-    &\ell_b = 2R_b\sin\Big(\frac{\pi}{N_f}\Big) 
+    &\ell_b = 2R_b\sin\Big(\frac{\pi}{N_f}\Big)
 \end{align*}
 
 On peut également calculer l'aire des cellules, qui sont représentées par des trapèzes de hauteur $h = \frac{(R_b-R_a)}{2}\cos\Big(\frac{\pi}{N_f}\Big)$:
@@ -97,7 +97,9 @@ Pour parvenir à exprimer $\Lambda_a$ et $\Lambda_l$ en fonction de $R_a$ et $R_
     \end{align}
 \end{subequations}
 
-Les équations \eqref{lambda} donnent les relations entre $\Lambda_a, \Lambda_l$ et $R_a, R_b$, qui permettent de définir un point initial bien choisi. Fixer $\Lambda_b = 0$ est cohérent puisque l'on s'attend a trouver des tensions linéaires négligeables sur l'anneau basal.  
+Les équations \eqref{lambda} donnent les relations entre $\Lambda_a, \Lambda_l$ et $R_a, R_b$, qui permettent de définir un point initial bien choisi. Fixer $\Lambda_b = 0$ est cohérent puisque l'on s'attend a trouver des tensions linéaires négligeables sur l'anneau basal.
 
 On peut également obtenir grâce à ces équations un ordre de grandeur pour $\alpha$. En effet, puisque les tensions doivent être au plus de l'ordre de $10^2$, on peut déduire de \eqref{lambdaa}, que $\alpha \le \frac{50}{A(R_b-R_a)}+1$, en faisant l'approximation que $ \cos\Big(\frac{\pi}{N_f}\Big) \approx 1$ lorsque $N_f$ est grand. Nous proposons l'expression $\alpha = 1 + \frac{1}{\max_{\alpha \in \mathcal{A}}A_\alpha}$ qui satisfait cette relation, tant que $\frac{50}{R_b-R_a}\ge \frac{\overline{A}}{A_{max}}$.
+
+
 \end{document}

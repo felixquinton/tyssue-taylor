@@ -40,8 +40,13 @@ def mesh_from_data(centers, inner_contour, outer_contour):
         'edge':{
             'ux': 0.,
             'uy': 0.,
-            'uz': 0.,
-            'line_tension': 1e-3,
+            'fx': 0.,
+            'fy': 0.,
+            'sx': 0., # source and target coordinates
+            'sy': 0.,
+            'tx': 0.,
+            'ty': 0.,
+			'line_tension': 1e-3,
             'is_active': 1
             },
         'vert':{
