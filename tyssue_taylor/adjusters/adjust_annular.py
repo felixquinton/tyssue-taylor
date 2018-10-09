@@ -284,4 +284,45 @@ def set_init_point(r_in, r_out, Nf, alpha):
                                  2*np.cos(np.pi/Nf)*area*(alpha-1)*(r_out-r_in))
     initial_point[2*Nf:] = np.full(Nf,
                                    np.sin(2*np.pi/Nf)/2*area*(alpha-1)*r_out)
+    """
+    Initial point with the Moore-Penrose pseudo inverse used to solve
+    the underdetermination of the system. Gives very large lateral tensions.
+    The mesh obtained does not represent an organoid.
+    """
+    """
+    area = (r_out**2-r_in**2)/2*np.sin(2*np.pi/Nf)
+    initial_point[:Nf] = np.full(Nf,
+                                 ((1-alpha)*area*r_in*
+                                  (np.sin(np.pi/Nf)**2+4)*
+                                  np.sin(2*np.pi/Nf)*
+                                  np.sin(np.pi/Nf)**2)/
+                                 (np.sin(np.pi/Nf)**4+
+                                  8*np.sin(np.pi/Nf)**2) +
+                                 (4*(alpha-1)*area*r_out*
+                                  np.sin(2*np.pi/Nf)*
+                                  np.sin(np.pi/Nf)**2)/
+                                 (np.sin(np.pi/Nf)**4+
+                                  8*np.sin(np.pi/Nf)**2))
+    initial_point[Nf:2*Nf] = np.full(Nf,
+                                     ((alpha-1)*area*r_out*
+                                      (np.sin(np.pi/Nf)**2+4)*
+                                      np.sin(2*np.pi/Nf)*
+                                      np.sin(np.pi/Nf)**2)/
+                                     (np.sin(np.pi/Nf)**4+
+                                      8*np.sin(np.pi/Nf)**2) +
+                                     (4*(1-alpha)*area*r_in*
+                                      np.sin(2*np.pi/Nf)*
+                                      np.sin(np.pi/Nf)**2)/
+                                     (np.sin(np.pi/Nf)**4+
+                                      8*np.sin(np.pi/Nf)**2))
+    initial_point[2*Nf:] = np.full(Nf,
+                                   ((1-alpha)*area*r_in*np.sin(2*np.pi/Nf) *
+                                    (8-2*(np.sin(np.pi/Nf)**2+4))) /
+                                   (np.sin(np.pi/Nf)**4+
+                                    8*np.sin(np.pi/Nf)**2) +
+                                   ((alpha-1)*area*r_out*np.sin(2*np.pi/Nf) *
+                                    (2*(np.sin(np.pi/Nf)**2+4)-8)) /
+                                   (np.sin(np.pi/Nf)**4+
+                                    8*np.sin(np.pi/Nf)**2))
+    """
     return initial_point

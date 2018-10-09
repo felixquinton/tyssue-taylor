@@ -89,8 +89,8 @@ def test_generate_ring_from_image():
     gp_dir = os.sep.join(CURRENT_DIR.split(os.sep)[:-2])
     brightfield_path = gp_dir+'/assets/sample_image_brightfield.tiff'
     dapi_path = gp_dir+'/assets/CELLPROFILER_sample_image_dapi.tiff.csv'
-    organo, inners, outers = generate_ring_from_image(brightfield_path,
-                                                      dapi_path)
+    organo, inners, outers, centers = generate_ring_from_image(brightfield_path,
+                                                               dapi_path)
     for table in (inners, outers):
         assert isinstance(table, np.ndarray)
         assert not np.any(np.isnan(table))
