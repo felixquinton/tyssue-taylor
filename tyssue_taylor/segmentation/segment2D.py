@@ -2,15 +2,23 @@
 This module provides utilities to extract nuclei and membranes
 contours from microscopy images
 """
+import os
+from glob import glob
 import numpy as np
 from sympy import Line, oo
 import pandas as pd
 from tyssue.generation import generate_ring
+from tifffile import imread
+from stardist import dist_to_coord, non_maximum_suppression, StarDist
+from csbdeep.utils import normalize
 import cv2 as cv
 
 
-def generate_ring_from_image(brightfield_path, dapi_path,
-                             threshold=28, blur=9, rol_window=20):
+def generate_ring_from_image(brightfield_path, dapi_path, method='CP',
+                             scp_model_path=None,
+                             threshold=28, blur=9,
+                             rol_window_inside=100,
+                             rol_window_outside=20):
     """Create an organo mesh of class AnnularSheet from a brightfield image
     and a CellProfiler DAPI analysis csv file
 
@@ -39,14 +47,22 @@ def generate_ring_from_image(brightfield_path, dapi_path,
     """
 
     membrane_dic = extract_membranes(brightfield_path, threshold, blur)
-    clockwise_centers = extract_nuclei(dapi_path, membrane_dic['center_inside'],
-                                       membrane_dic['raw_inside'],
-                                       membrane_dic['img_shape'])
+    if method == 'CP':
+        clockwise_centers = extract_nuclei(dapi_path,
+                                           membrane_dic['center_inside'],
+                                           membrane_dic['raw_inside'],
+                                           membrane_dic['img_shape'])
+    elif method == 'SCP':
+        clockwise_centers = _star_convex_polynoms(dapi_path,
+                                                  membrane_dic['center_inside'],
+                                                  membrane_dic['raw_inside'],
+                                                  membrane_dic['img_shape'],
+                                                  scp_model_path)
     #rolling mean
     inside_df = pd.DataFrame(membrane_dic['inside'], index=None)
     outside_df = pd.DataFrame(membrane_dic['outside'], index=None)
-    inners = inside_df.rolling(rol_window, min_periods=1).mean().values
-    outers = outside_df.rolling(rol_window, min_periods=1).mean().values
+    inners = inside_df.rolling(rol_window_inside, min_periods=1).mean().values
+    outers = outside_df.rolling(rol_window_outside, min_periods=1).mean().values
 
     #defining the organoid using the data we saved above
     Nf = len(clockwise_centers)
@@ -75,6 +91,30 @@ def generate_ring_from_image(brightfield_path, dapi_path,
     clockwise_centers *= 0.323
     return organo, inners, outers, clockwise_centers
 
+def _star_convex_polynoms(dapi_path, center_inside,
+                          raw_inside, img_shape, model_path):
+    images = sorted(glob(dapi_path))
+    images = list(map(imread, images))
+    img = normalize(images[0], 1, 99.8)
+    model_sc = StarDist(None,
+                        name='stardist_shape_completion',
+                        basedir=model_path)
+    prob, dist = model_sc.predict(img)
+    coord = dist_to_coord(dist)
+    points = non_maximum_suppression(coord, prob, prob_thresh=0.4)
+    points = np.flip(points, 1)
+    centers = _delete_artifact(points, raw_inside)
+
+    clockwise_centers = _arrange_centers_clockwise(centers, center_inside)
+
+    clockwise_centers -= np.full(np.asarray(clockwise_centers).shape,
+                                 (img_shape[0]/2.0, img_shape[1]/2.0))
+    clockwise_centers = np.float32(np.asarray(clockwise_centers))
+    tmp = []
+    [tmp.append(tuple(r)) for r in clockwise_centers if tuple(r) not in tmp]
+    clockwise_centers = np.array(tmp)
+    return clockwise_centers
+
 
 def extract_membranes(brightfield_path, threshold=28, blur=9):
     """
@@ -97,12 +137,12 @@ def extract_membranes(brightfield_path, threshold=28, blur=9):
     """
     img = cv.imread(brightfield_path, cv.IMREAD_GRAYSCALE).copy()
     #28
-    ret, img = cv.threshold(img, threshold, 255, 0)
+    _, img = cv.threshold(img, threshold, 255, 0)
     #9
     img = cv.GaussianBlur(img, (blur, blur), 0)
 
-    img, contours, hierarchy = cv.findContours(img, cv.RETR_TREE,
-                                               cv.CHAIN_APPROX_SIMPLE)
+    img, contours, _ = cv.findContours(img, cv.RETR_TREE,
+                                       cv.CHAIN_APPROX_SIMPLE)
     contours = np.array(contours)
 
     contours_length = np.array([c.size for c in contours])
