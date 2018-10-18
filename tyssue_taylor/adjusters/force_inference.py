@@ -8,9 +8,38 @@ for Two Dimensional Cell Arrays, K.Chiou et al., 2012
 //////\\\\\\
 IN PROGRESS
 \\\\\\//////
+To use force inference, please call the infer_forces function.
+The doc-string of infer_forces is given below :
+    Uses the functions defined above to compute the initial
+    guess given by the force inference method with Moore-Penrose
+    pseudo-inverse.
+    *****************
+    Parameters:
+    organo :  :class:`Epithelium` object
+    method : string
+     one of 'MP' (default) for Moore-Penrose pseudo-inverse method, 'QP' to
+     solve the model with quadratic programming (which ensure non negative
+     tensions) or 'NNLS' which runs the non-negative least squares algorithm
+     from Lawson C., Hanson R.J., (1987) Solving Least Squares Problems.
+    init_method : string
+     argument to define the initialization method for the QP method.
+     One of 'simple'(default) : initialize with vector of zeros.
+            'moore-penrose' : initialize with the Moore-Penrose initial point.
+    compute_pressions : boolean
+     If True, the method computes tensions and pressions. If False, the method
+     computes only tensions.
+    verbose : boolean
+     If True, print the inital point.
+    *****************
+    Returns
+    dic with key :  tensions : the vector of tensions
+                    pressions : the vector of pressions if computed
+    *****************
 """
 import numpy as np
 import pandas as pd
+
+from scipy.optimize import minimize, nnls
 
 from tyssue.generation import generate_ring
 from tyssue_taylor.models.annular import AnnularGeometry as geom
@@ -42,7 +71,7 @@ def _adj_faces(organo, vertex):
     Return :
     faces : dic with keys being the edges connected to vertex and
      containing the corresponding adjacent faces' indices
-    /!\ REMARK : indice -1 stands for the lumen and -2 for the exterior
+    REMARK : indice -1 stands for the lumen and -2 for the exterior
     """
     edges = _adj_edges(organo, vertex)
     faces = {}
@@ -65,7 +94,7 @@ def _collect_data(organo):
         data[ind] = _adj_faces(organo, ind)
     return data
 
-def _coef_matrix(organo):
+def _coef_matrix(organo, compute_pressions=True):
     """Write the coefficient matrix for the linear system
     *****************
     Parameters:
@@ -89,7 +118,10 @@ def _coef_matrix(organo):
     data = _collect_data(organo)
     Ne = int(organo.Ne*0.75)
     #in the coefs, we add a cell for the interior and for the exterior
-    coefs = np.zeros((2*organo.Nv, Ne+(organo.Nf+2)))
+    if compute_pressions:
+        coefs = np.zeros((2*organo.Nv, Ne+(organo.Nf+2)))
+    else:
+        coefs = np.zeros((2*organo.Nv, Ne))
     for vertex in data:
         for edge in data[vertex]:
             edge_vertices = (organo.edge_df.srce[edge],
@@ -98,48 +130,137 @@ def _coef_matrix(organo):
                 edge_vertices = (organo.edge_df.trgt[edge],
                                  organo.edge_df.srce[edge])
             #coef for the first term in equation (1)
-            coefs[vertex][edge] = ((organo.vert_df.x[edge_vertices[1]] -
-                                    organo.vert_df.x[edge_vertices[0]]) /
-                                   organo.edge_df.length[edge])
-            coefs[organo.Nv+vertex][edge] = ((organo.vert_df.y[edge_vertices[1]] -
-                                              organo.vert_df.y[edge_vertices[0]]) /
-                                             organo.edge_df.length[edge])
-            for ind, face in enumerate(data[vertex][edge]):
-                coord_dif_y = (organo.vert_df.y[edge_vertices[1]] -
-                               organo.vert_df.y[edge_vertices[0]])
-                coord_dif_x = (organo.vert_df.x[edge_vertices[1]] -
-                               organo.vert_df.x[edge_vertices[0]])
-                if face >= 0:
-                    #coef for the second term in equation (1)
-                    coefs[organo.Nv+vertex][Ne+face] = ((1-2*ind) *
-                                                        coord_dif_y/2)
-                    coefs[organo.Nv+vertex][Ne+face] = (-(1-2*ind) *
-                                                        coord_dif_x/2)
-                elif face == -1: #if the face is the interior
-                    coefs[organo.Nv+vertex][face] = ((1-2*ind) * coord_dif_y/2)
-                    coefs[organo.Nv+vertex][face] = (-(1-2*ind) * coord_dif_x/2)
-                else: #if the face is the interior
-                    coefs[organo.Nv+vertex][face] = ((1-2*ind) * coord_dif_y/2)
-                    coefs[organo.Nv+vertex][face] = (-(1-2*ind) * coord_dif_x/2)
+            edge_ind = edge
 
-    coefs = coefs[:-3, :]
-    coefs = np.append(coefs, [[0]*Ne+[0]*(organo.Nf)+[1, 0],
-                              [1]*Ne+[0]*(organo.Nf+2)], axis=0)
+            if edge_ind >= Ne:
+                edge_ind -= int(organo.Ne*0.25)
+            coefs[vertex][edge_ind] = ((organo.vert_df.x[edge_vertices[1]] -
+                                        organo.vert_df.x[edge_vertices[0]]) /
+                                       organo.edge_df.length[edge])
+            coefs[organo.Nv+vertex][edge_ind] = ((organo.vert_df.y[edge_vertices[1]] -
+                                                  organo.vert_df.y[edge_vertices[0]]) /
+                                                 organo.edge_df.length[edge])
+            if compute_pressions:
+                for ind, face in enumerate(data[vertex][edge]):
+                    coord_dif_y = (organo.vert_df.y[edge_vertices[1]] -
+                                   organo.vert_df.y[edge_vertices[0]])
+                    coord_dif_x = (organo.vert_df.x[edge_vertices[1]] -
+                                   organo.vert_df.x[edge_vertices[0]])
+                    if face >= 0:
+                        #coef for the second term in equation (1)
+                        coefs[organo.Nv+vertex][Ne+face] = ((1-2*ind) *
+                                                            coord_dif_y/2)
+                        coefs[organo.Nv+vertex][Ne+face] = (-(1-2*ind) *
+                                                            coord_dif_x/2)
+                    elif face == -1: #if the face is the interior
+                        coefs[organo.Nv+vertex][face] = ((1-2*ind) *
+                                                         coord_dif_y/2)
+                        coefs[organo.Nv+vertex][face] = (-(1-2*ind) *
+                                                         coord_dif_x/2)
+                    else: #if the face is the interior
+                        coefs[organo.Nv+vertex][face] = ((1-2*ind) *
+                                                         coord_dif_y/2)
+                        coefs[organo.Nv+vertex][face] = (-(1-2*ind) *
+                                                         coord_dif_x/2)
+
+    #coefs = np.delete(coefs, (Ne-2, Ne-1, Ne+organo.Nf+1), axis=0)
+    #coefs = np.append(coefs, [[0]*Ne+[0]*(organo.Nf)+[1, 0],
+    #                          [1]*Ne+[0]*(organo.Nf+2)], axis=0)
+    if compute_pressions:
+        coefs = coefs[:-1, :]
+        coefs = np.append(coefs, [[0]*Ne+[0]*(organo.Nf)+[1, 0],
+                                  [1]*Ne+[0]*(organo.Nf+2)], axis=0)
+    else:
+        coefs = np.append(coefs, [[1]*Ne], axis=0)
     return coefs
 
-def infer_forces(organo):
-    """Uses the functions defined above to compute the initial
-    guess given by the force inference method with Moore-Penrose
-    pseudo-inverse.
-    """
+def _moore_penrose_inverse(organo):
     coefs = _coef_matrix(organo)
     inv = np.linalg.pinv(coefs)
     #C stands for the right side of equation (8) of the referenced paper
     C = np.zeros(coefs.shape[0])
-    C[-1] = 0.01*int(organo.Ne*0.75)
+    C[-1] = int(organo.Ne*0.75)
     system_sol = np.dot(inv, C)
-    return {'tensions': system_sol[:int(organo.Ne*0.75)],
-            'pressions': system_sol[int(organo.Ne*0.75):]}
+    return system_sol
+
+def _nnls_model(organo, compute_pressions, verbose):
+    coefs = _coef_matrix(organo, compute_pressions)
+    C = np.zeros(coefs.shape[0])
+    C[-1] = 0.01*int(organo.Ne*0.75)
+    res, _ = nnls(coefs, C)
+    if verbose:
+        print(res)
+    return res
+
+
+def _qp_obj(x, coefs, C):
+    coefxparam = np.dot(coefs, x)
+    dotminusC = coefxparam - C
+    return np.dot(dotminusC, dotminusC)
+
+def _qp_model(organo, init_method, verbose):
+    coefs = _coef_matrix(organo)
+    C = np.zeros(coefs.shape[0])
+    C[-1] = 0.01*int(organo.Ne*0.75)
+    bounds = [(0, None)]*int(organo.Ne*0.75)+[(None, None)]*(organo.Nf+2)
+    if init_method == 'simple':
+        init_point = np.zeros(int(organo.Ne*0.75)+organo.Nf+2)
+    elif init_method == 'moore-penrose':
+        init_point = _moore_penrose_inverse(organo)
+        print('The initial point was obtained using the Moore-Penrose \
+              pseudo-inverse to solve the linear system proposed in the paper.\
+              Initial point : \n', init_point)
+    res = minimize(_qp_obj,
+                   init_point,
+                   args=(coefs, C),
+                   method='L-BFGS-B',
+                   bounds=bounds)
+    if verbose:
+        print('\n\n\n', res)
+    return res.x
+
+
+
+def infer_forces(organo, method='MP', init_method='simple',
+                 compute_pressions=True, verbose=False):
+    """Uses the functions defined above to compute the initial
+    guess given by the force inference method with Moore-Penrose
+    pseudo-inverse.
+    *****************
+    Parameters:
+    organo :  :class:`Epithelium` object
+    method : string
+     one of 'MP' (default) for Moore-Penrose pseudo-inverse method, 'QP' to solve
+     the model with quadratic programming (which ensure non negative tensions)
+     or 'NNLS' which runs the non-negative least squares algorithm from
+     Lawson C., Hanson R.J., (1987) Solving Least Squares Problems.
+    init_method : string
+     argument to define the initialization method for the QP method.
+     One of 'simple'(default) : initialize with vector of zeros.
+            'moore-penrose' : initialize with the Moore-Penrose initial point.
+    compute_pressions : boolean
+     If True, the method computes tensions and pressions. If False, the method
+     computes only tensions.
+    verbose : boolean
+     If True, print the inital point.
+    *****************
+    Returns
+    dic with key :  tensions : the vector of tensions
+                    pressions : the vector of pressions if computed
+    *****************
+    """
+    if method == 'MP':
+        system_sol = _moore_penrose_inverse(organo)
+    elif method == 'QP':
+        system_sol = _qp_model(organo, init_method, verbose)
+    elif method == 'NNLS':
+        system_sol = _nnls_model(organo, compute_pressions, verbose)
+    if compute_pressions:
+        dic_res = {'tensions': system_sol[:int(organo.Ne*0.75)],
+                   'pressions': system_sol[int(organo.Ne*0.75):]}
+    else:
+        dic_res = {'tensions': system_sol[:int(organo.Ne*0.75)]}
+    return dic_res
 
 if __name__ == "__main__":
     ORGANO = generate_ring(3, 1, 2)
@@ -175,4 +296,5 @@ if __name__ == "__main__":
 
     ORGANO.update_specs(SPECS, reset=True)
     geom.update_all(ORGANO)
-    print(infer_forces(ORGANO))
+    print(infer_forces(ORGANO, 'NNLS', compute_pressions=True))
+    print(infer_forces(ORGANO, 'NNLS', compute_pressions=False))
