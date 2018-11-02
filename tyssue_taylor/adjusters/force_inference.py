@@ -42,7 +42,11 @@ import pandas as pd
 from scipy.optimize import minimize, nnls
 
 from tyssue.generation import generate_ring
+from tyssue.solvers.sheet_vertex_solver import Solver
 from tyssue_taylor.models.annular import AnnularGeometry as geom
+from tyssue_taylor.models.annular import model
+from tyssue_taylor.adjusters.adjust_annular import (set_init_point,
+                                                    prepare_tensions)
 
 def _adj_edges(organo, vertex):
     """Identify the adjacents edges for a given vertex
@@ -77,12 +81,12 @@ def _adj_faces(organo, vertex):
     faces = {}
     for index, edge in edges.iterrows():
         if edge.segment == 'apical':
-            faces[index] = (edge.face, -1)
+            faces[index] = [edge.face, -1]
         elif edge.segment == 'basal':
-            faces[index] = (edge.face, -2)
+            faces[index] = [edge.face, -2]
         else:
             lat_index = index
-    faces[lat_index] = tuple(faces[key][0] for key in faces)
+    faces[lat_index] = list(faces[key][0] for key in faces)
     return faces
 
 def _collect_data(organo):
@@ -116,31 +120,41 @@ def _coef_matrix(organo, compute_pressions=True):
     exterior is set to 0.
     """
     data = _collect_data(organo)
-    Ne = int(organo.Ne*0.75)
+    nb_edges = int(organo.Ne*0.75)
     #in the coefs, we add a cell for the interior and for the exterior
+    coefs = np.zeros((2*organo.Nv,
+                      nb_edges+compute_pressions*(organo.Nf+2)))
+    vertices = np.arange(organo.Nv)
+    edges = np.array([list(data[vertex].keys()) for vertex in vertices])
+    edges_vertices = np.array([np.vstack((organo.edge_df.srce[data[vertex]],
+                                          organo.edge_df.trgt[data[vertex]])).T
+                               for vertex in vertices])
+    edges_vertices[:, 1] = edges_vertices[:, 1, [1, 0]]
+    edges[edges == organo.Ne-1] = 2*organo.Nf
+    edges[edges >= nb_edges] -= organo.Nf-1
+    xs_difs = np.subtract(organo.vert_df.x[edges_vertices[:, :, 1].flatten()],
+                          organo.vert_df.x[edges_vertices[:, :, 0].flatten()])
+    ys_difs = np.subtract(organo.vert_df.y[edges_vertices[:, :, 1].flatten()],
+                          organo.vert_df.y[edges_vertices[:, :, 0].flatten()])
+    coefs[np.repeat(vertices, 3),
+          edges.flatten()] = np.divide(xs_difs,
+                                       organo.edge_df.length[edges.flatten()])
+    coefs[organo.Nv+np.repeat(vertices, 3),
+          edges.flatten()] = np.divide(ys_difs,
+                                       organo.edge_df.length[edges.flatten()])
     if compute_pressions:
-        coefs = np.zeros((2*organo.Nv, Ne+(organo.Nf+2)))
-    else:
-        coefs = np.zeros((2*organo.Nv, Ne))
-    for vertex in data:
-        for edge in data[vertex]:
-            edge_vertices = (organo.edge_df.srce[edge],
-                             organo.edge_df.trgt[edge])
-            if edge_vertices[0] != vertex:
-                edge_vertices = (organo.edge_df.trgt[edge],
-                                 organo.edge_df.srce[edge])
-            #coef for the first term in equation (1)
-            edge_ind = edge
-
-            if edge_ind >= Ne:
-                edge_ind -= int(organo.Ne*0.25)
-            coefs[vertex][edge_ind] = ((organo.vert_df.x[edge_vertices[1]] -
-                                        organo.vert_df.x[edge_vertices[0]]) /
-                                       organo.edge_df.length[edge])
-            coefs[organo.Nv+vertex][edge_ind] = ((organo.vert_df.y[edge_vertices[1]] -
-                                                  organo.vert_df.y[edge_vertices[0]]) /
-                                                 organo.edge_df.length[edge])
-            if compute_pressions:
+        for vertex in data:
+            #if compute_pressions:
+            #    faces = np.array([*data[vertex].values()])
+            #    c2e_interface = np.argwhere(faces.any(axis=1) == -2)
+            #    c2i_interface = np.argwhere(faces.any(axis=1) == -1)
+            #    c2c_interface = np.argwhere(faces.all(axis=1) >= 0)
+            #    print(faces, c2c_interface)
+            #    coefs[vertex+organo.Nv][c2c_interface+nb_edges] = np.multiply([1, -1],
+            #                                                               y_difs[c2c_interface]/2)
+            #    coefs[vertex+organo.Nv][c2c_interface+nb_edges] = np.multiply([-1, 1],
+            #                                                               x_difs[c2c_interface]/2)
+            for edge in data[vertex]:
                 for ind, face in enumerate(data[vertex][edge]):
                     coord_dif_y = (organo.vert_df.y[edge_vertices[1]] -
                                    organo.vert_df.y[edge_vertices[0]])
@@ -148,60 +162,60 @@ def _coef_matrix(organo, compute_pressions=True):
                                    organo.vert_df.x[edge_vertices[0]])
                     if face >= 0:
                         #coef for the second term in equation (1)
-                        coefs[organo.Nv+vertex][Ne+face] = ((1-2*ind) *
-                                                            coord_dif_y/2)
-                        coefs[organo.Nv+vertex][Ne+face] = (-(1-2*ind) *
-                                                            coord_dif_x/2)
+                        coefs[organo.Nv+vertex][nb_edges+face] = ((1-2*ind) *
+                                                                  coord_dif_y/2)
+                        coefs[organo.Nv+vertex][nb_edges+face] = (-(1-2*ind) *
+                                                                  coord_dif_x/2)
                     elif face == -1: #if the face is the interior
                         coefs[organo.Nv+vertex][face] = ((1-2*ind) *
                                                          coord_dif_y/2)
                         coefs[organo.Nv+vertex][face] = (-(1-2*ind) *
                                                          coord_dif_x/2)
-                    else: #if the face is the interior
+                    else: #if the face is the exterior
                         coefs[organo.Nv+vertex][face] = ((1-2*ind) *
                                                          coord_dif_y/2)
                         coefs[organo.Nv+vertex][face] = (-(1-2*ind) *
                                                          coord_dif_x/2)
 
+    
     #coefs = np.delete(coefs, (Ne-2, Ne-1, Ne+organo.Nf+1), axis=0)
-    #coefs = np.append(coefs, [[0]*Ne+[0]*(organo.Nf)+[1, 0],
+    #coefs = np.append(coefs, [[0]*Ne+[0]*(orscholargano.Nf)+[1, 0],
     #                          [1]*Ne+[0]*(organo.Nf+2)], axis=0)
     if compute_pressions:
         coefs = coefs[:-1, :]
-        coefs = np.append(coefs, [[0]*Ne+[0]*(organo.Nf)+[1, 0],
-                                  [1]*Ne+[0]*(organo.Nf+2)], axis=0)
+        coefs = np.append(coefs, [[0]*nb_edges+[0]*(organo.Nf)+[1, 0],
+                                  [1]*nb_edges+[0]*(organo.Nf+2)], axis=0)
     else:
-        coefs = np.append(coefs, [[1]*Ne], axis=0)
+        coefs = np.append(coefs, [[1]*nb_edges], axis=0)
     return coefs
 
 def _moore_penrose_inverse(organo):
     coefs = _coef_matrix(organo)
     inv = np.linalg.pinv(coefs)
-    #C stands for the right side of equation (8) of the referenced paper
-    C = np.zeros(coefs.shape[0])
-    C[-1] = int(organo.Ne*0.75)
-    system_sol = np.dot(inv, C)
+    #constant stands for the right side of equation (8) of the referenced paper
+    constant = np.zeros(coefs.shape[0])
+    constant[-1] = int(organo.Ne*0.75)
+    system_sol = np.dot(inv, constant)
     return system_sol
 
 def _nnls_model(organo, compute_pressions, verbose):
     coefs = _coef_matrix(organo, compute_pressions)
-    C = np.zeros(coefs.shape[0])
-    C[-1] = 0.01*int(organo.Ne*0.75)
-    res, _ = nnls(coefs, C)
+    constant = np.zeros(coefs.shape[0])
+    constant[-1] = 0.01*int(organo.Ne*0.75)
+    res, _ = nnls(coefs, constant)
     if verbose:
         print(res)
     return res
 
-
-def _qp_obj(x, coefs, C):
-    coefxparam = np.dot(coefs, x)
-    dotminusC = coefxparam - C
-    return np.dot(dotminusC, dotminusC)
+def _qp_obj(params, coefs, constant):
+    coefxparam = np.dot(coefs, params)
+    dotminusconstant = coefxparam - constant
+    return np.dot(dotminusconstant, dotminusconstant)
 
 def _qp_model(organo, init_method, verbose):
     coefs = _coef_matrix(organo)
-    C = np.zeros(coefs.shape[0])
-    C[-1] = 0.01*int(organo.Ne*0.75)
+    constant = np.zeros(coefs.shape[0])
+    constant[-1] = 0.01*int(organo.Ne*0.75)
     bounds = [(0, None)]*int(organo.Ne*0.75)+[(None, None)]*(organo.Nf+2)
     if init_method == 'simple':
         init_point = np.zeros(int(organo.Ne*0.75)+organo.Nf+2)
@@ -212,14 +226,12 @@ def _qp_model(organo, init_method, verbose):
               Initial point : \n', init_point)
     res = minimize(_qp_obj,
                    init_point,
-                   args=(coefs, C),
+                   args=(coefs, constant),
                    method='L-BFGS-B',
                    bounds=bounds)
     if verbose:
         print('\n\n\n', res)
     return res.x
-
-
 
 def infer_forces(organo, method='MP', init_method='simple',
                  compute_pressions=True, verbose=False):
@@ -263,11 +275,11 @@ def infer_forces(organo, method='MP', init_method='simple',
     return dic_res
 
 if __name__ == "__main__":
-    ORGANO = generate_ring(3, 1, 2)
+    NF = 3
+    ORGANO = generate_ring(NF, 1, 2)
     geom.update_all(ORGANO)
     ALPHA = 1 + 1/(20*(ORGANO.settings['R_out']-ORGANO.settings['R_in']))
-
-
+    np.random.seed(1553)
     # Model parameters or specifications
     SPECS = {
         'face':{
@@ -296,5 +308,34 @@ if __name__ == "__main__":
 
     ORGANO.update_specs(SPECS, reset=True)
     geom.update_all(ORGANO)
-    print(infer_forces(ORGANO, 'NNLS', compute_pressions=True))
-    print(infer_forces(ORGANO, 'NNLS', compute_pressions=False))
+
+    SYMETRIC_TENSIONS = np.multiply(set_init_point(ORGANO.settings['R_in'],
+                                                   ORGANO.settings['R_out'],
+                                                   ORGANO.Nf, ALPHA),
+                                    np.random.normal(1, 0.002,
+                                                     int(ORGANO.Ne*0.75)))
+    SIN_MUL = 1+(np.sin(np.linspace(0, 2*np.pi, ORGANO.Nf, endpoint=False)))**2
+    ORGANO.face_df.prefered_area *= np.random.normal(1.0, 0.05, ORGANO.Nf)
+    ORGANO.edge_df.line_tension = prepare_tensions(ORGANO, SYMETRIC_TENSIONS)
+    ORGANO.edge_df.loc[:ORGANO.Nf-1, 'line_tension'] *= SIN_MUL
+
+    ORGANO.vert_df[['x_ecm', 'y_ecm']] = ORGANO.vert_df[['x', 'y']]
+    ORGANO.vert_df.loc[ORGANO.basal_verts, 'adhesion_strength'] = 0.01
+
+    NEW_TENSIONS = ORGANO.edge_df.line_tension
+
+    ORGANO.edge_df.loc[:, 'line_tension'] = NEW_TENSIONS
+
+    RES = Solver.find_energy_min(ORGANO, geom, model)
+    COEFS = _coef_matrix(ORGANO, False)
+    CONSTANT = np.zeros(COEFS.shape[0])
+    CONSTANT[-1] = 0.01*int(ORGANO.Ne*0.75)
+    DF_COEFS = pd.DataFrame(COEFS)
+    DF_COEFS.to_csv('A_'+str(NF)+'cells.csv', index=False)
+    DF_CONSTANT = pd.DataFrame(CONSTANT)
+    DF_CONSTANT.to_csv('b_'+str(NF)+'cells.csv', index=False)
+    RES_INFERENCE = infer_forces(ORGANO, 'NNLS', compute_pressions=False)
+    DF_RES_INFERENCE = pd.DataFrame(RES_INFERENCE)
+    DF_RES_INFERENCE.to_csv('x*_'+str(NF)+'cells.csv')
+    print(RES_INFERENCE)
+    print(ORGANO.edge_df)
