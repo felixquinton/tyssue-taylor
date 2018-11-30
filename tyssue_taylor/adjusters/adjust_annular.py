@@ -19,7 +19,7 @@ def adjust_tensions(eptm, initial_guess, regularization,
 
     Parameters
     ----------
-    organo : :class:`Epithelium` object
+    eptm : :class:`Epithelium` object
     initial_guess : vector of initial line tensions (size 3*Nf)
     regularization : dictionnary with fields :
                         'dic' : dictionnary with fields 'apical' and 'basal'
@@ -64,6 +64,53 @@ def adjust_tensions(eptm, initial_guess, regularization,
     elif main_min_opt['method'] == 'dist_PSQP':
         return _psqp_dist_opt(organo, initial_guess, regularization,
                               minimize_opt, initial_min_opt,
+                              **main_min_opt)
+    else:
+        print(f"Unknown method : f{main_min_opt['method']}")
+    return -1
+
+def adjust_areas(eptm, initial_guess, opt_tensions,
+                 energy_min_opt=None,
+                 **main_min_opt):
+    """Find the line tensions which minimize the distance to the epithelium
+
+    Parameters
+    ----------
+    eptm : :class:`Epithelium` object
+    area_guess : vector of initial prefered area (size 3*Nf)
+    energy_min_opt : scipy.optimize.minize option dictionnary for the energy
+                     minimization
+    opt_tensions : table of tensions to be set in organo.
+    main_min_opt : option dictionnary for the main optimization. Syntax depends
+                   on the method.
+                   For bgfs and SLSQP use the scipy.optimize.minimize syntax.
+                   For trf and lm use the scipy.optimize.least_squares method.
+                   For PSQP the syntax is:
+                   'lb' : lower bound of the Parameters
+                   'ub' : upper bound of the Parameters
+                   'method': PSQP
+    """
+    organo = eptm.copy()
+    minimize_opt = config.solvers.minimize_spec()
+
+    if energy_min_opt is not None:
+        minimize_opt['minimize']['options'] = energy_min_opt.get(
+            'options',
+            minimize_opt['minimize']['options'])
+    if main_min_opt['method'] == 'bfgs':
+        return -1
+    #    return minimize(_obj_bfgs, initial_guess, **main_min_opt,
+    #                    args=(organo, regularization, minimize_opt))
+    elif main_min_opt['method'] in ('trf', 'lm'):
+        return least_squares(_opt_dist, initial_guess,
+                             **main_min_opt,
+                             args=(organo, {'dic':{}, 'weight':0},
+                                   False, opt_tensions),
+                             kwargs=minimize_opt)
+    elif main_min_opt['method'] == 'dist_PSQP':
+        return _psqp_dist_opt(organo, initial_guess, {'dic':{}, 'weight':0},
+                              minimize_opt, minimize_opt,
+                              opt_tensions=opt_tensions,
                               **main_min_opt)
     else:
         print(f"Unknown method : f{main_min_opt['method']}")
@@ -138,10 +185,14 @@ def _psqp_dist_opt(organo, initial_guess, regularization,
                    opt_tensions=None,
                    **main_min_opt):
     init_eptm = organo.copy()
-    init_eptm.edge_df.line_tension = prepare_tensions(init_eptm,
-                                                      initial_guess)
+    if opt_tensions is None:
+        init_eptm.edge_df.line_tension = prepare_tensions(init_eptm,
+                                                          initial_guess)
+    else:
+        init_eptm.edge_df.line_tension = prepare_tensions(init_eptm,
+                                                          opt_tensions)
     solver.find_energy_min(init_eptm, geom, model)
-    initial_ener = _opt_ener(initial_guess, init_eptm,
+    initial_ener = _opt_ener(initial_guess, init_eptm, opt_tensions,
                              **energy_min_opt)
     opt_prob = _create_pyopt_model(_wrap_obj_and_const,
                                    initial_guess,
@@ -194,7 +245,8 @@ def _opt_ener(var_table, organo,
         variables[('edge', 'line_tension')] = prepare_tensions(
             tmp_organo, var_table[:3*tmp_organo.Nf])
     else:
-        variables[('edge', 'line_tension')] = opt_tensions
+        variables[('edge', 'line_tension')] = prepare_tensions(tmp_organo,
+                                                               opt_tensions)
         variables[('face', 'prefered_area')] = var_table
     if len(var_table)%organo.Nf != 0:
         variables[('lumen_prefered_vol', None)] = var_table[-1]
@@ -209,7 +261,8 @@ def _opt_dist(var_table, organo, regularization, sum_obj,
         variables[('edge', 'line_tension')] = prepare_tensions(
             tmp_organo, var_table[:3*tmp_organo.Nf])
     else:
-        variables[('edge', 'line_tension')] = opt_tensions
+        variables[('edge', 'line_tension')] = prepare_tensions(organo,
+                                                               opt_tensions)
         variables[('face', 'prefered_area')] = var_table
     if len(var_table)%organo.Nf != 0:
         variables[('lumen_prefered_vol', None)] = var_table[-1]
