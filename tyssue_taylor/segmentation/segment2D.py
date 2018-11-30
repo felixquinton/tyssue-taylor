@@ -2,7 +2,6 @@
 This module provides utilities to extract nuclei and membranes
 contours from microscopy images
 """
-import os
 from glob import glob
 import numpy as np
 from sympy import Line, oo
@@ -65,7 +64,7 @@ def generate_ring_from_image(brightfield_path, dapi_path, method='CP',
     outers = outside_df.rolling(rol_window_outside, min_periods=1).mean().values
 
     #defining the organoid using the data we saved above
-    Nf = len(clockwise_centers)
+    nb_cells = len(clockwise_centers)
 
     org_center = membrane_dic['center_inside']-\
                  np.full(2, membrane_dic['img_shape'][0]/2.0)
@@ -75,7 +74,7 @@ def generate_ring_from_image(brightfield_path, dapi_path, method='CP',
                                                  outers, org_center)
 
     #initialising the mesh
-    organo = generate_ring(Nf, membrane_dic['rIn'], membrane_dic['rOut'])
+    organo = generate_ring(nb_cells, membrane_dic['rIn'], membrane_dic['rOut'])
 
     # adjustement
     organo.vert_df.loc[organo.apical_verts,
@@ -89,6 +88,9 @@ def generate_ring_from_image(brightfield_path, dapi_path, method='CP',
     clockwise_centers = np.array(clockwise_centers)
     clockwise_centers -= np.full(outer_vs.shape, org_center)
     clockwise_centers *= 0.323
+    organo.settings['R_in'] *= 0.323
+    organo.settings['R_out'] *= 0.323
+    print(organo.settings)
     return organo, inners, outers, clockwise_centers
 
 def _star_convex_polynoms(dapi_path, center_inside,
@@ -110,9 +112,12 @@ def _star_convex_polynoms(dapi_path, center_inside,
     clockwise_centers -= np.full(np.asarray(clockwise_centers).shape,
                                  (img_shape[0]/2.0, img_shape[1]/2.0))
     clockwise_centers = np.float32(np.asarray(clockwise_centers))
+    #clockwise_centers = np.unique(clockwise_centers, axis=0)
     tmp = []
     [tmp.append(tuple(r)) for r in clockwise_centers if tuple(r) not in tmp]
     clockwise_centers = np.array(tmp)
+    #print(clockwise_centers.shape)
+    #print(np.hstack((trying, clockwise_centers)))
     return clockwise_centers
 
 
@@ -146,6 +151,10 @@ def extract_membranes(brightfield_path, threshold=28, blur=9):
     contours = np.array(contours)
 
     contours_length = np.array([c.size for c in contours])
+    #print(contours_length)
+    #special case for contour from actin_surligned
+    if threshold == 2:
+        membrane_ind = np.argsort(contours_length)[::2]
     membrane_ind = np.argsort(contours_length)[-2:]
 
     retained_contours = contours[membrane_ind]
@@ -155,7 +164,6 @@ def extract_membranes(brightfield_path, threshold=28, blur=9):
 
     centers = circles[:, 0]
     radii = circles[:, 1]
-
     inside, outside, res_dic = _recognize_in_from_out(retained_contours,
                                                       centers, radii)
 
@@ -174,11 +182,11 @@ def extract_membranes(brightfield_path, threshold=28, blur=9):
     return res_dic
 
 
-def extract_nuclei(CP_dapi_path, center_inside, raw_inside, img_shape):
+def extract_nuclei(cp_dapi_path, center_inside, raw_inside, img_shape):
     """
     Parameters
     ----------
-    CP_dapi_path : string
+    cp_dapi_path : string
       path to the csv output file from CellProfiler
 
     Return
@@ -187,7 +195,7 @@ def extract_nuclei(CP_dapi_path, center_inside, raw_inside, img_shape):
       coordinates of the nuclei centers ordonned clockwise.
 
     """
-    dapi_df = pd.read_csv(CP_dapi_path)
+    dapi_df = pd.read_csv(cp_dapi_path)
     centers = np.column_stack((dapi_df['AreaShape_Center_X'],
                                dapi_df['AreaShape_Center_Y']))
 
@@ -333,7 +341,8 @@ def _delete_artifact(centers, raw_inside):
     '''
     #delete the centers which are not inside the organo (possibly newborn cells ??)
     c2m = np.array([np.min(np.linalg.norm(np.full(raw_inside.shape, center)-
-                                          raw_inside, axis=1)) for center in centers])
+                                          raw_inside, axis=1))
+                    for center in centers])
     to_del = np.argwhere(c2m > 2*np.mean(c2m))
     return np.delete(centers, to_del, 0)
 
@@ -363,16 +372,20 @@ def _find_neighbor(centers, org_center):
     # KDTree neighbor finding structure
     # https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.cKDTree.html
     for i in centers:
-        ii = (i[0]-org_center[0], i[1]-org_center[1])
+        centered_i = (i[0]-org_center[0], i[1]-org_center[1])
         min1 = 10**6
         argmin1 = -1
         for j in centers:
-            jj = (j[0]-org_center[0], j[1]-org_center[1])
-            if not ii[0] == jj[0] and not ii[1] == jj[1]:
-                dot_prod = ii[0]*jj[1]-ii[1]*jj[0]
-                distance = np.sqrt((ii[0]-jj[0])**2 + (ii[1]-jj[1])**2)
+            centered_j = (j[0]-org_center[0], j[1]-org_center[1])
+            if not (centered_i[0] == centered_j[0] and not
+                    centered_i[1] == centered_j[1]):
+                dot_prod = (centered_i[0]*centered_j[1]-
+                            centered_i[1]*centered_j[0])
+                distance = np.sqrt((centered_i[0]-centered_j[0])**2 +
+                                   (centered_i[1]-centered_j[1])**2)
                 if dot_prod > 0 and distance < min1:
-                    min1 = np.sqrt((ii[0]-jj[0])**2+(ii[1]-jj[1])**2)
+                    min1 = np.sqrt((centered_i[0]-centered_j[0])**2 +
+                                   (centered_i[1]-centered_j[1])**2)
                     argmin1 = j
         neighbors[i] = argmin1
     return neighbors
@@ -451,13 +464,13 @@ def _fill_gaps(contour, gap_dist):
             ycord = np.full((int(distance[gap]), 1), contour[gap][1])
             points = np.column_stack((xcord, np.float32(ycord)))
         else:
-            b = contour[gap][1] - contour[gap][0] * line.slope
+            constant = contour[gap][1] - contour[gap][0] * line.slope
             xcord = np.linspace(contour[gap][0]+
                                 (contour[(gap+1)%len(contour)][0]-
                                  contour[gap][0])/distance[gap],
                                 contour[(gap+1)%len(contour)][0],
                                 int(distance[gap]), endpoint=False)
-            ycord = int(line.slope) * xcord + b
+            ycord = int(line.slope) * xcord + constant
             points = np.column_stack((xcord, np.float32(ycord)))
         res = np.concatenate((res, points))
     return res

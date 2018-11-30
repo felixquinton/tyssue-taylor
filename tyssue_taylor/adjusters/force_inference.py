@@ -39,6 +39,7 @@ The doc-string of infer_forces is given below :
 import numpy as np
 import pandas as pd
 
+from scipy import sparse
 from scipy.optimize import minimize, nnls
 
 from tyssue.generation import generate_ring
@@ -92,7 +93,47 @@ def _adj_faces(organo):
                                              organo.Nf))).T
     return faces
 
-def _coef_matrix(organo, compute_pressions=True):
+def _coef_matrix(organo, compute_pressions=False):
+    organo.get_extra_indices()
+    u_ij = organo.edge_df.eval('dx / length')
+    v_ij = organo.edge_df.eval('dy / length')
+    uv_ij = np.concatenate((u_ij, v_ij))
+
+    A_shape = (2*organo.Nv+1, organo.Ne)
+    srce_rows = np.concatenate([
+        organo.edge_df.srce,              ## x lines
+        organo.edge_df.srce + organo.Nv   ## y lines
+    ])
+
+    trgt_rows = np.concatenate([
+        organo.edge_df.trgt,              ## x lines
+        organo.edge_df.trgt + organo.Nv   ## y lines
+    ])
+
+    cols = np.r_[:organo.Ne, :organo.Ne] ## [0 ... Ne, 0 ... Ne]
+
+    A_srce = sparse.coo_matrix((uv_ij, (srce_rows, cols)), shape=A_shape)
+    A_trgt = sparse.coo_matrix((-uv_ij, (trgt_rows, cols)), shape=A_shape)
+    # Ones every where on the last line
+    A_sumT = sparse.coo_matrix(
+        (np.ones(organo.Ne),
+         (np.ones(organo.Ne)*2*organo.Nv,
+          np.arange(organo.Ne))), shape=A_shape)
+
+    A = A_srce + A_trgt + A_sumT
+
+    # As tensions are equal for edge pairs, we can solve for only
+    # the single edges. An index over only one half-edge per edge
+    # can be obtained with:
+    print(A)
+
+    A = A[:, organo.sgle_edges]
+
+    if compute_pressions:
+        print('Unable to compute pressions')
+    return A.toarray()
+
+def _coef_matrix_deprecated(organo, compute_pressions=True):
     """Write the coefficient matrix for the linear system
     *****************
     Parameters:

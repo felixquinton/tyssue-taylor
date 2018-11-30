@@ -4,10 +4,11 @@ process
 import warnings
 import numpy as np
 
-def distance_regularized(eptm, objective_eptm, variables, to_regularize,
-                         reg_weight, solver, geom, model, coords=None,
-                         **kwargs):
-
+def distance_regularized(eptm, objective_eptm, variables,
+                         solver, geom, model,
+                         to_regularize={}, reg_weight=0,
+                         sum_residuals=False,
+                         coords=None, **kwargs):
     """Changes variables inplace in the epithelium, finds the energy minimum,
     and returns the distance between the new configuration and the objective
     epithelium.
@@ -35,12 +36,19 @@ def distance_regularized(eptm, objective_eptm, variables, to_regularize,
     if not res.get('success', True):
         warnings.warn('Energy optimisation failed')
         print(res.get('message', 'no message was provided'))
-    dist = _distance(tmp_eptm, objective_eptm, coords)
     reg_mod = reg_weight * _reg_module(tmp_eptm,
                                        to_regularize.get('apical', False),
                                        to_regularize.get('basal', False))
+    dist = np.linalg.norm(_distance(tmp_eptm,
+                                    objective_eptm, coords), axis=1)
     tension_bound = _tension_bounds(tmp_eptm)
-    return np.concatenate((dist, reg_mod, tension_bound))
+    if sum_residuals:
+        #obj = dist + np.sum(np.concatenate((np.array(reg_mod),
+        #                                    tension_bound.values)))
+        obj = np.sum(np.concatenate((dist, reg_mod, tension_bound)))
+    else:
+        obj = np.concatenate((dist, reg_mod, tension_bound))
+    return obj
 
 def _energy(eptm, variables, solver, geom, model, **kwargs):
     tmp_eptm = eptm.copy()
@@ -58,10 +66,10 @@ def _energy(eptm, variables, solver, geom, model, **kwargs):
 def _distance(actual_eptm, objective_eptm, coords=None):
     if coords is None:
         coords = objective_eptm.coords
-    diff = (actual_eptm.vert_df[coords]-
-            objective_eptm.vert_df[coords]).values
-    norm = np.sqrt(np.linalg.norm(diff, axis=1))
-    return norm
+    diff = np.subtract(np.array(actual_eptm.vert_df[coords].values),
+                       np.array(objective_eptm.vert_df[coords].values))
+    #norm = np.linalg.norm(diff, axis=1)
+    return diff
 
 def _reg_module(actual_eptm, reg_apical, reg_basal):
     apical_edges = actual_eptm.edge_df.loc[actual_eptm.apical_edges].copy()
@@ -80,4 +88,5 @@ def _tension_bounds(actual_eptm, coords=None):
     tension_lb = -np.minimum(tensions, np.zeros(3*actual_eptm.Nf))
     tension_ub = np.zeros(3*actual_eptm.Nf)
     tension_ub[tensions > 1e3] = tensions[tensions > 1e3] - 1e3
-    return 1e3*np.power((tension_lb + tension_ub), np.full(tension_lb.shape, 3))
+    return 1e3*np.power((tension_lb + tension_ub),
+                        np.full(tension_lb.shape, 3))
