@@ -99,7 +99,7 @@ def _coef_matrix(organo, compute_pressions=False):
     v_ij = organo.edge_df.eval('dy / length')
     uv_ij = np.concatenate((u_ij, v_ij))
 
-    A_shape = (2*organo.Nv+1, organo.Ne)
+    coef_shape = (2*organo.Nv+1, organo.Ne)
     srce_rows = np.concatenate([
         organo.edge_df.srce,              ## x lines
         organo.edge_df.srce + organo.Nv   ## y lines
@@ -112,26 +112,53 @@ def _coef_matrix(organo, compute_pressions=False):
 
     cols = np.r_[:organo.Ne, :organo.Ne] ## [0 ... Ne, 0 ... Ne]
 
-    A_srce = sparse.coo_matrix((uv_ij, (srce_rows, cols)), shape=A_shape)
-    A_trgt = sparse.coo_matrix((-uv_ij, (trgt_rows, cols)), shape=A_shape)
+    coef_srce = sparse.coo_matrix((uv_ij, (srce_rows, cols)), shape=coef_shape)
+    coef_trgt = sparse.coo_matrix((-uv_ij, (trgt_rows, cols)), shape=coef_shape)
     # Ones every where on the last line
-    A_sumT = sparse.coo_matrix(
-        (np.ones(organo.Ne),
-         (np.ones(organo.Ne)*2*organo.Nv,
-          np.arange(organo.Ne))), shape=A_shape)
+    coef_sum_t = sparse.coo_matrix((np.ones(organo.Ne),
+                                    (np.ones(organo.Ne)*2*organo.Nv,
+                                     np.arange(organo.Ne))), shape=coef_shape)
 
-    A = A_srce + A_trgt + A_sumT
+    coef = coef_srce + coef_trgt + coef_sum_t
 
     # As tensions are equal for edge pairs, we can solve for only
     # the single edges. An index over only one half-edge per edge
     # can be obtained with:
-    print(A)
 
-    A = A[:, organo.sgle_edges]
-
+    coef = coef[:, organo.sgle_edges].toarray()
     if compute_pressions:
-        print('Unable to compute pressions')
-    return A.toarray()
+        coef = np.hstack((coef, _pression_coefs(organo)))
+        print(coef)
+    return coef
+
+def _pression_coefs(organo):
+    beta_x = 0.5*organo.edge_df.dy.values[organo.sgle_edges]
+    beta_y = -0.5*organo.edge_df.dx.values[organo.sgle_edges]
+    #cell to cell coefficients are placed on 4 stacked diagonal matrix
+    coef_lat_pres = np.vstack((np.diag(beta_x[-organo.Nf:]),
+                               -np.diag(beta_x[-organo.Nf:]),
+                               np.diag(beta_y[-organo.Nf:]),
+                               -np.diag(beta_y[-organo.Nf:])))
+    #lumen to cell coefficients in a columnar vector
+    coef_api_pres = np.concatenate((
+        np.add(beta_x[organo.apical_edges],
+               np.roll(beta_x[organo.apical_edges], 1)),
+        np.zeros(organo.Nf),
+        np.add(beta_y[organo.apical_edges],
+               np.roll(beta_y[organo.apical_edges], 1)),
+        np.zeros(organo.Nf)))
+    #exterior to cell coefficients in a columnar vector
+    coef_bas_pres = np.concatenate((
+        np.zeros(organo.Nf),
+        np.add(beta_x[organo.basal_edges],
+               np.roll(beta_x[organo.basal_edges], 1)),
+        np.zeros(organo.Nf),
+        np.add(beta_y[organo.basal_edges],
+               np.roll(beta_y[organo.basal_edges], 1))))
+    pres_coef = np.hstack((coef_lat_pres,
+                           np.reshape(coef_api_pres, (4*organo.Nf, 1)),
+                           np.reshape(coef_bas_pres, (4*organo.Nf, 1))))
+    return np.vstack((pres_coef, np.zeros(organo.Nf+2)))
 
 def _coef_matrix_deprecated(organo, compute_pressions=True):
     """Write the coefficient matrix for the linear system
