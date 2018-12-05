@@ -153,9 +153,9 @@ def extract_membranes(brightfield_path, threshold=28, blur=9):
     contours_length = np.array([c.size for c in contours])
     #print(contours_length)
     #special case for contour from actin_surligned
+    membrane_ind = np.argsort(contours_length)[-2:]
     if threshold == 2:
         membrane_ind = np.argsort(contours_length)[::2]
-    membrane_ind = np.argsort(contours_length)[-2:]
 
     retained_contours = contours[membrane_ind]
 

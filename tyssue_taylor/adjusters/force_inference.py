@@ -132,13 +132,18 @@ def _coef_matrix(organo, compute_pressions=False):
     return coef
 
 def _pression_coefs(organo):
-    beta_x = 0.5*organo.edge_df.dy.values[organo.sgle_edges]
-    beta_y = -0.5*organo.edge_df.dx.values[organo.sgle_edges]
+    beta_x = 0.5*organo.edge_df.dy[organo.sgle_edges].copy()
+    beta_y = -0.5*organo.edge_df.dx[organo.sgle_edges].copy()
     #cell to cell coefficients are placed on 4 stacked diagonal matrix
-    coef_lat_pres = np.vstack((np.diag(beta_x[-organo.Nf:]),
-                               -np.diag(beta_x[-organo.Nf:]),
-                               np.diag(beta_y[-organo.Nf:]),
-                               -np.diag(beta_y[-organo.Nf:])))
+    coef_lat_pres = np.vstack((
+        np.diag(beta_x[np.intersect1d(organo.sgle_edges.values,
+                                      organo.lateral_edges.values)]),
+        -np.diag(beta_x[np.intersect1d(organo.sgle_edges.values,
+                                       organo.lateral_edges.values)]),
+        np.diag(beta_y[np.intersect1d(organo.sgle_edges.values,
+                                      organo.lateral_edges.values)]),
+        -np.diag(beta_y[np.intersect1d(organo.sgle_edges.values,
+                                       organo.lateral_edges.values)])))
     #lumen to cell coefficients in a columnar vector
     coef_api_pres = np.concatenate((
         np.add(beta_x[organo.apical_edges],
@@ -156,72 +161,9 @@ def _pression_coefs(organo):
         np.add(beta_y[organo.basal_edges],
                np.roll(beta_y[organo.basal_edges], 1))))
     pres_coef = np.hstack((coef_lat_pres,
-                           np.reshape(coef_api_pres, (4*organo.Nf, 1)),
-                           np.reshape(coef_bas_pres, (4*organo.Nf, 1))))
+                           np.reshape(coef_api_pres, (2*organo.Nv, 1)),
+                           np.reshape(coef_bas_pres, (2*organo.Nv, 1))))
     return np.vstack((pres_coef, np.zeros(organo.Nf+2)))
-
-def _coef_matrix_deprecated(organo, compute_pressions=True):
-    """Write the coefficient matrix for the linear system
-    *****************
-    Parameters:
-    organo :  :class:`Epithelium` object
-    *****************
-    Returns
-    coefs : np.ndarray containing the coefficients for the tensions
-     and pressions
-    *****************
-    The problem is formulated as M*phi=C (see Mechanical Stress inference
-    for Two Dimensional Cell Arrays, K.Chiou et al., 2012).
-    The parameter vector phi contains the Ne linear tensions and the Nf
-    pressions.
-    We could set 2*Nv constraints but K.Chiou et al., 2012 discard
-    three of them because of symetries.
-    We add two additional constraints as recommended in the supplementary text
-    S1 : the mean tension must be equal to a constant. We chose e*0.01 as we
-    want the average tensions to be around 0.01. Also, the pression of the
-    exterior is set to 0.
-    """
-    nb_edges = int(organo.Ne*0.75)
-    coefs = np.zeros((2*organo.Nv,
-                      nb_edges+compute_pressions*(organo.Nf+2)))
-    vertices = np.arange(organo.Nv)
-    edges = _adj_edges(organo)
-    edges_vertices = np.array([np.vstack((organo.edge_df.srce[edges[vertex]],
-                                          organo.edge_df.trgt[edges[vertex]])).T
-                               for vertex in vertices])
-    edges_vertices[:, 2] = edges_vertices[:, 2, [1, 0]]
-    edges[edges == organo.Ne-1] = 2*organo.Nf
-    edges[edges >= nb_edges] -= organo.Nf-1
-    xs_difs = np.subtract(organo.vert_df.x[edges_vertices[:, :, 1].flatten()],
-                          organo.vert_df.x[edges_vertices[:, :, 0].flatten()])
-    ys_difs = np.subtract(organo.vert_df.y[edges_vertices[:, :, 1].flatten()],
-                          organo.vert_df.y[edges_vertices[:, :, 0].flatten()])
-    coefs[np.repeat(vertices, 3),
-          edges.flatten()] = np.divide(xs_difs,
-                                       organo.edge_df.length[edges.flatten()])
-    coefs[organo.Nv+np.repeat(vertices, 3),
-          edges.flatten()] = np.divide(ys_difs,
-                                       organo.edge_df.length[edges.flatten()])
-    if compute_pressions:
-        faces = _adj_faces(organo).flatten()
-        c2m_ind = np.squeeze(np.argwhere(faces == -2)) // 2
-        c2l_ind = np.squeeze(np.argwhere(faces == -1)) // 2
-        c2c_ind = np.squeeze(np.argwhere(faces >= 0)) // 2
-        coefs[c2m_ind//3, -2] = -1/2*ys_difs.values[c2m_ind]
-        coefs[c2l_ind//3, -1] = -1/2*ys_difs.values[c2l_ind]
-        coefs[c2c_ind//3, faces[c2c_ind]] = -1/2*ys_difs.values[c2c_ind]
-
-
-    #coefs = np.delete(coefs, (Ne-2, Ne-1, Ne+organo.Nf+1), axis=0)
-    #coefs = np.append(coefs, [[0]*Ne+[0]*(orscholargano.Nf)+[1, 0],
-    #                          [1]*Ne+[0]*(organo.Nf+2)], axis=0)
-    if compute_pressions:
-        coefs = coefs[:-1, :]
-        coefs = np.append(coefs, [[0]*nb_edges+[0]*(organo.Nf)+[1, 0],
-                                  [1]*nb_edges+[0]*(organo.Nf+2)], axis=0)
-    else:
-        coefs = np.append(coefs, [[1]*nb_edges], axis=0)
-    return coefs
 
 def _moore_penrose_inverse(organo):
     coefs = _coef_matrix(organo)
