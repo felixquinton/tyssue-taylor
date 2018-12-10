@@ -43,6 +43,7 @@ from scipy import sparse
 from scipy.optimize import minimize, nnls
 
 from tyssue.generation import generate_ring
+from tyssue.dynamics.planar_gradients import area_grad
 from tyssue.solvers.sheet_vertex_solver import Solver
 from tyssue_taylor.models.annular import AnnularGeometry as geom
 from tyssue_taylor.models.annular import model
@@ -128,7 +129,6 @@ def _coef_matrix(organo, compute_pressions=False):
     coef = coef[:, organo.sgle_edges].toarray()
     if compute_pressions:
         coef = np.hstack((coef, _pression_coefs(organo)))
-        print(coef)
     return coef
 
 def _pression_coefs(organo):
@@ -144,6 +144,11 @@ def _pression_coefs(organo):
                                       organo.lateral_edges.values)]),
         -np.diag(beta_y[np.intersect1d(organo.sgle_edges.values,
                                        organo.lateral_edges.values)])))
+    # coef_lat_pres = np.vstack((
+    #     np.diag(beta_x[organo.lateral_edges.values[:organo.lateral_edges.shape[0]]]),
+    #     -np.diag(beta_x[organo.lateral_edges.values[:organo.lateral_edges.shape[0]]]),
+    #     np.diag(beta_y[organo.lateral_edges.values[:organo.lateral_edges.shape[0]]]),
+    #     -np.diag(beta_y[organo.lateral_edges.values[:organo.lateral_edges.shape[0]]])))
     #lumen to cell coefficients in a columnar vector
     coef_api_pres = np.concatenate((
         np.add(beta_x[organo.apical_edges],
@@ -164,6 +169,101 @@ def _pression_coefs(organo):
                            np.reshape(coef_api_pres, (2*organo.Nv, 1)),
                            np.reshape(coef_bas_pres, (2*organo.Nv, 1))))
     return np.vstack((pres_coef, np.zeros(organo.Nf+2)))
+
+def _lumen_grad(eptm):
+    srce_pos = eptm.upcast_srce(eptm.vert_df[['x', 'y']]).loc[eptm.apical_edges]
+    trgt_pos = eptm.upcast_trgt(eptm.vert_df[['x', 'y']]).loc[eptm.apical_edges]
+    apical_edge_pos = (srce_pos + trgt_pos)/2
+    apical_edge_coords = eptm.edge_df.loc[eptm.apical_edges,
+                                          ['dx', 'dy']]
+    grad_x = (- apical_edge_coords['dy']
+              + apical_edge_pos['y'] * apical_edge_coords['dx']).values
+    grad_y = (- apical_edge_pos['x'] * apical_edge_coords['dy']
+              + apical_edge_coords['dx']).values
+    return(np.c_[grad_x, grad_y])
+
+def _indices_areas_coefs(organo):
+    """
+    Build the indices to give to sparse.coo_matrix in order to built the
+    area_coefs matrix
+    """
+    nb_api = organo.apical_edges.shape[0]
+    nb_basal = organo.apical_edges.shape[0]
+    apical_verts = organo.edge_df.srce[organo.apical_edges].values
+    basal_verts = organo.edge_df.srce[organo.basal_edges].values
+    apical_rows = np.c_[(apical_verts - 1)%nb_api, #cell on the left
+                        apical_verts%nb_api, #cell on the right
+                        np.full(nb_api, nb_api)].flatten() #lumen
+    #apical_rows = np.c_[apical_rows, ]
+    basal_rows = np.c_[(basal_verts - 1)%nb_basal, #cell on the left
+                       basal_verts%nb_basal, #cell on the right
+                       np.full(nb_basal, nb_basal+1)].flatten() #exterior
+    apical_cols = np.repeat(np.arange(organo.apical_edges.shape[0]), 3)
+    basal_cols = np.repeat(np.arange(organo.basal_edges.shape[0]), 3)
+    return {'api_rows': apical_rows, 'api_cols': apical_cols,
+            'bas_rows': basal_rows, 'bas_cols': basal_cols}
+
+def _coefs_areas_coefs(organo, grad_srce, grad_trgt, grad_lumen):
+    """
+    Computes the coefficents for the matrix areas_coefs.
+    """
+    per_vertex_grad_x = (organo.sum_srce(grad_srce).gx +
+                         organo.sum_trgt(grad_trgt).gx).values
+    per_vertex_grad_y = (organo.sum_srce(grad_srce).gy +
+                         organo.sum_trgt(grad_trgt).gy).values
+    grad_factors = organo.face_df.eval('area_elasticity * (area - prefered_area)')
+    coefs_x_apical = np.multiply(np.tile(grad_factors, 2), per_vertex_grad_x)
+    coefs_x_apical = np.insert(coefs_x_apical,
+                               np.arange(organo.apical_edges.shape[0]-1,
+                                         2*organo.apical_edges.shape[0]+1, 2),
+                               grad_lumen[:, 0])
+    coefs_y_apical = np.multiply(np.tile(grad_factors, 2), per_vertex_grad_y)
+    coefs_y_apical = np.insert(coefs_y_apical,
+                               np.arange(organo.apical_edges.shape[0]-1,
+                                         2*organo.apical_edges.shape[0]+1, 2),
+                               grad_lumen[:, 1])
+    coefs_x_basal = np.multiply(np.tile(grad_factors, 2), per_vertex_grad_x)
+    coefs_x_basal = np.insert(coefs_x_basal,
+                              np.arange(organo.basal_edges.shape[0]-1,
+                                        2*organo.basal_edges.shape[0]+1, 2),
+                              np.zeros(organo.basal_edges.shape[0]))
+    coefs_y_basal = np.multiply(np.tile(grad_factors, 2), per_vertex_grad_y)
+    coefs_y_basal = np.insert(coefs_y_basal,
+                              np.arange(organo.basal_edges.shape[0]-1,
+                                        2*organo.basal_edges.shape[0]+1, 2),
+                              np.zeros(organo.basal_edges.shape[0]))
+    return {'api_x': coefs_x_apical, 'api_y': coefs_y_apical,
+            'bas_x': coefs_x_basal, 'bas_y': coefs_y_basal}
+
+def _areas_coefs(organo):
+    grad_lumen = _lumen_grad(organo) #lumen area's gradient
+    ind_dic = _indices_areas_coefs(organo) #coo_matrix indices
+    grad_srce, grad_trgt = area_grad(organo) #cell's areas gradient
+    coef_shape = (organo.apical_edges.shape[0], organo.Nf+2)
+    coefs = _coefs_areas_coefs(organo, grad_srce, grad_trgt, grad_lumen)
+    print(coefs, ind_dic['api_cols'], ind_dic['api_rows'], coef_shape)
+    coef_x_apical = sparse.coo_matrix((coefs['api_x'],
+                                       (ind_dic['api_cols'],
+                                        ind_dic['api_rows'])),
+                                      shape=(coef_shape))
+    coef_x_basal = sparse.coo_matrix((coefs['api_y'],
+                                      (ind_dic['bas_cols'],
+                                       ind_dic['bas_rows'])),
+                                     shape=(coef_shape))
+    coef_y_apical = sparse.coo_matrix((coefs['bas_x'],
+                                       (ind_dic['api_cols'],
+                                        ind_dic['api_rows'])),
+                                      shape=(coef_shape))
+    coef_y_basal = sparse.coo_matrix((coefs['bas_y'],
+                                      (ind_dic['bas_cols'],
+                                       ind_dic['bas_rows'])),
+                                     shape=(coef_shape))
+    area_coefs = np.vstack((coef_x_apical.toarray(),
+                            coef_x_basal.toarray(),
+                            coef_y_apical.toarray(),
+                            coef_y_basal.toarray()))
+    print(np.vstack((area_coefs, np.zeros(organo.Nf+2))))
+    return np.vstack((area_coefs, np.zeros(organo.Nf+2)))
 
 def _moore_penrose_inverse(organo):
     coefs = _coef_matrix(organo)
@@ -313,5 +413,4 @@ if __name__ == "__main__":
     RES_INFERENCE = infer_forces(ORGANO, 'NNLS', compute_pressions=False)
     DF_RES_INFERENCE = pd.DataFrame(RES_INFERENCE)
     DF_RES_INFERENCE.to_csv('x*_'+str(NF)+'cells.csv')
-    print(RES_INFERENCE)
-    print(ORGANO.edge_df)
+    print(_areas_coefs(ORGANO))
