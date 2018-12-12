@@ -249,7 +249,7 @@ def get_bissecting_vertices(centers, inners, outers, org_center):
     outer_vs = outers.take(_find_closer_angle(bissect, theta_outers), axis=0)
     return inner_vs, outer_vs
 
-def normalize_scale(organo, geom):
+def normalize_scale(organo, geom, refer='area'):
     """Rescale an organo so that the mean cell area is close to 1.
     Useful if one as some issues with the scale of the optimization parameters.
     Parameters
@@ -259,17 +259,38 @@ def normalize_scale(organo, geom):
 
     geom : tyssue geometry class
 
+    refer : string
+      if 'area': coordinates are changed so that the mean cell area is 1.
+      if 'edges': coordinates are changed so that the mean edge length is 1.
+      Default is 'area'.
+
     Return
     ----------
     res_organo : :class:`Epithelium` object
       the rescaled organo
 
     """
-    mean = organo.face_df.area.mean()
-    organo.vert_df.loc[:, organo.coords] /= mean**0.5
-    organo.settings['R_in'] /= mean**0.5
-    organo.settings['R_out'] /= mean**0.5
+    old_area = organo.face_df.area.copy()
+    old_lumen_vol = organo.settings['lumen_volume']
+    if refer == 'area':
+        mean = organo.face_df.area.mean()
+        organo.vert_df.loc[:, organo.coords] /= mean**0.5
+        organo.settings['R_in'] /= mean**0.5
+        organo.settings['R_out'] /= mean**0.5
+        if 'adhesion_strength' in organo.vert_df.columns:
+            organo.vert_df.loc[:, ('x_ecm', 'y_ecm')] /= mean
+    elif refer == 'edges':
+        mean = organo.edge_df.length.mean()
+        organo.vert_df.loc[:, organo.coords] /= mean
+        organo.settings['R_in'] /= mean
+        organo.settings['R_out'] /= mean
+        if 'adhesion_strength' in organo.vert_df.columns:
+            organo.vert_df.loc[:, ('x_ecm', 'y_ecm')] /= mean
     geom.update_all(organo)
+    area_factor = organo.face_df.area/old_area
+    organo.face_df.prefered_area *= area_factor
+    organo.settings['lumen_prefered_vol'] *= (organo.settings['lumen_volume']/
+                                              old_lumen_vol)
     return organo
 
 def _recognize_in_from_out(retained_contours, centers, radii):

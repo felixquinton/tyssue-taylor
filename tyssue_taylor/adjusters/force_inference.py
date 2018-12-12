@@ -273,7 +273,7 @@ def _nnls_model(organo, sup_param, verbose):
         print(res)
     return res
 
-def _linear_model(organo, sup_param):
+def _linear_algebra(organo, sup_param):
     coefs = _coef_matrix(organo, sup_param)
     constant = np.zeros(coefs.shape[0])
     constant[-1] = int(organo.Ne*0.75)
@@ -320,6 +320,8 @@ def infer_forces(organo, method='MP', init_method='simple',
      the model with quadratic programming (which ensure non negative tensions)
      or 'NNLS' which runs the non-negative least squares algorithm from
      Lawson C., Hanson R.J., (1987) Solving Least Squares Problems.
+     Update 12/10/2018 : the problem can be solve using basic linear algebra
+     ig there is the same number of equations and variables. Use 'LINALG'.
     init_method : string
      argument to define the initialization method for the QP method.
      One of 'simple'(default) : initialize with vector of zeros.
@@ -343,6 +345,8 @@ def infer_forces(organo, method='MP', init_method='simple',
         system_sol = _qp_model(organo, init_method, sup_param, verbose)
     elif method == 'NNLS':
         system_sol = _nnls_model(organo, sup_param, verbose)
+    elif method == 'LINALG':
+        system_sol = _linear_algebra(organo, sup_param)
     if sup_param == 'pressions':
         dic_res = {'tensions': system_sol[:int(organo.Ne*0.75)],
                    'pressions': system_sol[int(organo.Ne*0.75):]}
@@ -354,7 +358,7 @@ def infer_forces(organo, method='MP', init_method='simple',
     return dic_res
 
 if __name__ == "__main__":
-    NF = 3
+    NF = 6
     ORGANO = generate_ring(NF, 1, 2)
     geom.update_all(ORGANO)
     ALPHA = 1 + 1/(20*(ORGANO.settings['R_out']-ORGANO.settings['R_in']))
@@ -406,16 +410,19 @@ if __name__ == "__main__":
     ORGANO.edge_df.loc[:, 'line_tension'] = NEW_TENSIONS
 
     RES = Solver.find_energy_min(ORGANO, geom, model)
-    COEFS = _coef_matrix(ORGANO, True)
+    COEFS = _coef_matrix(ORGANO, 'areas')
     CONSTANT = np.zeros(COEFS.shape[0])
     CONSTANT[-1] = 0.01*int(ORGANO.Ne*0.75)
     DF_COEFS = pd.DataFrame(COEFS)
-    DF_COEFS.to_csv('A_'+str(NF)+'cells.csv', index=False)
+    DF_COEFS.to_csv('A_'+str(NF)+'cells_areas.csv', index=False)
+    print(CONSTANT)
     DF_CONSTANT = pd.DataFrame(CONSTANT)
-    DF_CONSTANT.to_csv('b_'+str(NF)+'cells.csv', index=False)
+    DF_CONSTANT.to_csv('b_'+str(NF)+'cells_areas.csv', index=False)
     #RES_INFERENCE = _linear_model(ORGANO, 'areas')
     #RES_INFERENCE = _qp_model(ORGANO, 'simple', True, 0)
-    RES_INFERENCE = infer_forces(ORGANO, method='NNLS', sup_param='')
-    print(RES_INFERENCE)
-    #DF_RES_INFERENCE = pd.DataFrame(RES_INFERENCE)
-    #DF_RES_INFERENCE.to_csv('x*_'+str(NF)+'cells.csv')
+    RES_INFERENCE = infer_forces(ORGANO, method='NNLS', sup_param='areas')
+    TO_VECT_RES = np.concatenate((RES_INFERENCE['tensions'],
+                                  RES_INFERENCE['areas']))
+    print(TO_VECT_RES)
+    DF_RES_INFERENCE = pd.DataFrame(TO_VECT_RES)
+    DF_RES_INFERENCE.to_csv('x*_'+str(NF)+'cells_areas.csv')
