@@ -94,13 +94,13 @@ def _adj_faces(organo):
                                              organo.Nf))).T
     return faces
 
-def _coef_matrix(organo, sup_param=''):
+def _coef_matrix(organo, sup_param='', no_scale=False):
     organo.get_extra_indices()
     u_ij = organo.edge_df.eval('dx / length')
     v_ij = organo.edge_df.eval('dy / length')
     uv_ij = np.concatenate((u_ij, v_ij))
 
-    coef_shape = (2*organo.Nv+1, organo.Ne)
+    coef_shape = (2*organo.Nv+(not no_scale), organo.Ne)
     srce_rows = np.concatenate([
         organo.edge_df.srce,              ## x lines
         organo.edge_df.srce + organo.Nv   ## y lines
@@ -116,11 +116,13 @@ def _coef_matrix(organo, sup_param=''):
     coef_srce = sparse.coo_matrix((uv_ij, (srce_rows, cols)), shape=coef_shape)
     coef_trgt = sparse.coo_matrix((-uv_ij, (trgt_rows, cols)), shape=coef_shape)
     # Ones every where on the last line
-    coef_sum_t = sparse.coo_matrix((np.ones(organo.Ne),
-                                    (np.ones(organo.Ne)*2*organo.Nv,
-                                     np.arange(organo.Ne))), shape=coef_shape)
-
-    coef = coef_srce + coef_trgt + coef_sum_t
+    if no_scale:
+        coef = coef_srce + coef_trgt
+    else:
+        coef_sum_t = sparse.coo_matrix((np.ones(organo.Ne),
+                                        (np.ones(organo.Ne)*2*organo.Nv,
+                                         np.arange(organo.Ne))), shape=coef_shape)
+        coef = coef_srce + coef_trgt + coef_sum_t
 
     # As tensions are equal for edge pairs, we can solve for only
     # the single edges. An index over only one half-edge per edge
@@ -128,12 +130,12 @@ def _coef_matrix(organo, sup_param=''):
 
     coef = coef[:, organo.sgle_edges].toarray()
     if sup_param == 'areas':
-        coef = np.hstack((coef, _areas_coefs(organo)))
+        coef = np.c_[coef, _areas_coefs(organo, no_scale)]
     elif sup_param == 'pressions':
-        coef = np.hstack((coef, _pression_coefs(organo)))
+        coef = np.hstack((coef, _pression_coefs(organo, no_scale)))
     return coef
 
-def _pression_coefs(organo):
+def _pression_coefs(organo, no_scale):
     beta_x = 0.5*organo.edge_df.dy[organo.sgle_edges].copy()
     beta_y = -0.5*organo.edge_df.dx[organo.sgle_edges].copy()
     #cell to cell coefficients are placed on 4 stacked diagonal matrix
@@ -164,7 +166,9 @@ def _pression_coefs(organo):
     pres_coef = np.hstack((coef_lat_pres,
                            np.reshape(coef_api_pres, (2*organo.Nv, 1)),
                            np.reshape(coef_bas_pres, (2*organo.Nv, 1))))
-    return np.vstack((pres_coef, np.zeros(organo.Nf+2)))
+    if not no_scale:
+        pres_coef = np.vstack((pres_coef, np.zeros(organo.Nf+2)))
+    return pres_coef
 
 def _lumen_grad(eptm):
     srce_pos = eptm.upcast_srce(eptm.vert_df[['x', 'y']]).loc[eptm.apical_edges]
@@ -224,15 +228,34 @@ def _coefs_areas_coefs(organo, grad_srce, grad_trgt, grad_lumen):
     coefs_y_basal = np.insert(coefs_y_basal,
                               np.arange(1, 2*organo.basal_edges.shape[0]+1, 2),
                               np.zeros(organo.basal_edges.shape[0]))
+    print(coefs_x_apical)
+    coefs_x_apical = np.divide(np.ones(coefs_x_apical.shape),
+                               coefs_x_apical,
+                               out=np.zeros_like(coefs_x_apical),
+                               where=coefs_x_apical != 0)
+    print(coefs_x_apical)
+    coefs_y_apical = np.divide(np.ones(coefs_y_apical.shape),
+                               coefs_y_apical,
+                               out=np.zeros_like(coefs_y_apical),
+                               where=coefs_y_apical != 0)
+    coefs_x_basal = np.divide(np.ones(coefs_x_basal.shape),
+                              coefs_x_basal,
+                              out=np.zeros_like(coefs_x_basal),
+                              where=coefs_x_basal != 0)
+    coefs_y_basal = np.divide(np.ones(coefs_y_basal.shape),
+                              coefs_y_basal,
+                              out=np.zeros_like(coefs_y_basal),
+                              where=coefs_y_basal != 0)
     return {'api_x': coefs_x_apical, 'api_y': coefs_y_apical,
             'bas_x': coefs_x_basal, 'bas_y': coefs_y_basal}
 
-def _areas_coefs(organo):
+def _areas_coefs(organo, no_scale):
     grad_lumen = _lumen_grad(organo) #lumen area's gradient
     ind_dic = _indices_areas_coefs(organo) #coo_matrix indices
     grad_srce, grad_trgt = area_grad(organo) #cell's areas gradient
     coef_shape = (organo.apical_edges.shape[0], organo.Nf+1)
     coefs = _coefs_areas_coefs(organo, grad_srce, grad_trgt, grad_lumen)
+    #print(coefs)
     coef_x_apical = sparse.coo_matrix((coefs['api_x'],
                                        (ind_dic['api_cols'],
                                         ind_dic['api_rows'])),
@@ -253,31 +276,34 @@ def _areas_coefs(organo):
                             coef_x_basal.toarray(),
                             coef_y_apical.toarray(),
                             coef_y_basal.toarray()))
-    return np.vstack((area_coefs, np.zeros(organo.Nf+1)))
+    if not no_scale:
+        area_coefs = np.vstack((area_coefs, np.zeros(organo.Nf+1)))
+    return area_coefs
 
-def _moore_penrose_inverse(organo, sup_param):
-    coefs = _coef_matrix(organo, sup_param)
+def _right_side(organo, coefs):
+    res = np.zeros(coefs.shape[0])
+    res[-organo.Nf-1:-1] = organo.face_df.area
+    res[-1] = organo.Ne*3/4
+    #print(res)
+    return res
+
+def _moore_penrose_inverse(organo, sup_param, no_scale):
+    coefs = _coef_matrix(organo, sup_param, no_scale)
     inv = np.linalg.pinv(coefs)
     #constant stands for the right side of equation (8) of the referenced paper
-    constant = np.zeros(coefs.shape[0])
-    constant[-1] = int(organo.Ne*0.75)
-    system_sol = np.dot(inv, constant)
+    system_sol = np.dot(inv, _right_side(organo, coefs))
     return system_sol
 
-def _nnls_model(organo, sup_param, verbose):
-    coefs = _coef_matrix(organo, sup_param)
-    constant = np.zeros(coefs.shape[0])
-    constant[-1] = 0.01*int(organo.Ne*0.75)
-    res, _ = nnls(coefs, constant)
+def _nnls_model(organo, sup_param, no_scale, verbose):
+    coefs = _coef_matrix(organo, sup_param, no_scale)
+    res, _ = nnls(coefs, _right_side(organo, coefs))
     if verbose:
         print(res)
     return res
 
-def _linear_algebra(organo, sup_param):
-    coefs = _coef_matrix(organo, sup_param)
-    constant = np.zeros(coefs.shape[0])
-    constant[-1] = int(organo.Ne*0.75)
-    system_sol = np.linalg.solve(coefs, constant)
+def _linear_algebra(organo, sup_param, no_scale):
+    coefs = _coef_matrix(organo, sup_param, no_scale)
+    system_sol = np.linalg.solve(coefs, _right_side(organo, coefs))
     return system_sol
 
 
@@ -286,21 +312,19 @@ def _qp_obj(params, coefs, constant):
     dotminusconstant = coefxparam - constant
     return np.dot(dotminusconstant, dotminusconstant)
 
-def _qp_model(organo, init_method, sup_param, verbose):
-    coefs = _coef_matrix(organo, sup_param)
-    constant = np.zeros(coefs.shape[0])
-    constant[-1] = 0.01*int(organo.Ne*0.75)
+def _qp_model(organo, init_method, sup_param, no_scale, verbose):
+    coefs = _coef_matrix(organo, sup_param, no_scale)
     bounds = [(0, None)]*int(organo.Ne*0.75)+[(0, None)]*(organo.Nf+1)
     if init_method == 'simple':
         init_point = np.zeros(int(organo.Ne*0.75)+organo.Nf+1)
     elif init_method == 'moore-penrose':
-        init_point = _moore_penrose_inverse(organo, sup_param)
+        init_point = _moore_penrose_inverse(organo, sup_param, no_scale)
         print('The initial point was obtained using the Moore-Penrose \
               pseudo-inverse to solve the linear system proposed in the paper.\
               Initial point : \n', init_point)
     res = minimize(_qp_obj,
                    init_point,
-                   args=(coefs, constant),
+                   args=(coefs, _right_side(organo, coefs)),
                    method='L-BFGS-B',
                    bounds=bounds)
     if verbose:
@@ -308,7 +332,7 @@ def _qp_model(organo, init_method, sup_param, verbose):
     return res.x
 
 def infer_forces(organo, method='MP', init_method='simple',
-                 sup_param='', verbose=False):
+                 sup_param='', no_scale=False, verbose=False):
     """Uses the functions defined above to compute the initial
     guess given by the force inference method with Moore-Penrose
     pseudo-inverse.
@@ -340,13 +364,13 @@ def infer_forces(organo, method='MP', init_method='simple',
     *****************
     """
     if method == 'MP':
-        system_sol = _moore_penrose_inverse(organo, sup_param)
+        system_sol = _moore_penrose_inverse(organo, sup_param, no_scale)
     elif method == 'QP':
-        system_sol = _qp_model(organo, init_method, sup_param, verbose)
+        system_sol = _qp_model(organo, init_method, sup_param, no_scale, verbose)
     elif method == 'NNLS':
-        system_sol = _nnls_model(organo, sup_param, verbose)
+        system_sol = _nnls_model(organo, sup_param, no_scale, verbose)
     elif method == 'LINALG':
-        system_sol = _linear_algebra(organo, sup_param)
+        system_sol = _linear_algebra(organo, sup_param, no_scale)
     if sup_param == 'pressions':
         dic_res = {'tensions': system_sol[:int(organo.Ne*0.75)],
                    'pressions': system_sol[int(organo.Ne*0.75):]}
@@ -358,7 +382,7 @@ def infer_forces(organo, method='MP', init_method='simple',
     return dic_res
 
 if __name__ == "__main__":
-    NF = 6
+    NF = 3
     ORGANO = generate_ring(NF, 1, 2)
     geom.update_all(ORGANO)
     ALPHA = 1 + 1/(20*(ORGANO.settings['R_out']-ORGANO.settings['R_in']))
@@ -411,18 +435,22 @@ if __name__ == "__main__":
 
     RES = Solver.find_energy_min(ORGANO, geom, model)
     COEFS = _coef_matrix(ORGANO, 'areas')
-    CONSTANT = np.zeros(COEFS.shape[0])
-    CONSTANT[-1] = 0.01*int(ORGANO.Ne*0.75)
+    CONSTANT = _right_side(ORGANO, COEFS)
     DF_COEFS = pd.DataFrame(COEFS)
-    DF_COEFS.to_csv('A_'+str(NF)+'cells_areas.csv', index=False)
-    print(CONSTANT)
+    import matplotlib.pyplot as plt
+    for i in COEFS:
+        print(i)
+    #DF_COEFS.to_csv('A_'+str(NF)+'cells.csv', index=False)
     DF_CONSTANT = pd.DataFrame(CONSTANT)
-    DF_CONSTANT.to_csv('b_'+str(NF)+'cells_areas.csv', index=False)
+    #DF_CONSTANT.to_csv('b_'+str(NF)+'cells.csv', index=False)
     #RES_INFERENCE = _linear_model(ORGANO, 'areas')
     #RES_INFERENCE = _qp_model(ORGANO, 'simple', True, 0)
-    RES_INFERENCE = infer_forces(ORGANO, method='NNLS', sup_param='areas')
+    RES_INFERENCE = infer_forces(ORGANO, method='LINALG',
+                                 sup_param='areas', no_scale=False)
+    print('Mean tension :', RES_INFERENCE['tensions'].mean())
     TO_VECT_RES = np.concatenate((RES_INFERENCE['tensions'],
                                   RES_INFERENCE['areas']))
-    print(TO_VECT_RES)
+    TO_VECT_RES = np.array(RES_INFERENCE['tensions'])
+    print(RES_INFERENCE)
     DF_RES_INFERENCE = pd.DataFrame(TO_VECT_RES)
-    DF_RES_INFERENCE.to_csv('x*_'+str(NF)+'cells_areas.csv')
+    #DF_RES_INFERENCE.to_csv('x*_'+str(NF)+'nnls_cells.csv')
