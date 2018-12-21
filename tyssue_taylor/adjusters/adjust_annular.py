@@ -11,8 +11,24 @@ from .cost_functions import _distance, _energy, distance_regularized
 from ..models.annular import AnnularGeometry as geom
 from ..models.annular import model
 
-def adjust_scale(eptm, tensions_array):
-    return None
+
+def adjust_scale(organo, tensions_array,
+                 lb=0.0, ub=10.0,
+                 start_ss=1.0, end_ss=1e-3,
+                 geom=geom, model=model,
+                 **min_opt):
+    if min_opt.get('method', None) not in ('Golden', 'Nelder-Mead'):
+        raise ValueError('Unknown method :', min_opt.get('method', None))
+    tmp_eptm = organo.copy()
+    initial_scale = _scan_scale_factor(tmp_eptm, tensions_array,
+                                       lb, ub, start_ss, end_ss,
+                                       geom, model)
+    scale_fact_res = minimize(_scale_opt_obj,
+                              initial_scale,
+                              args=(tmp_eptm, tensions_array),
+                              **min_opt)
+    return scale_fact_res
+
 
 def adjust_tensions(eptm, initial_guess, regularization,
                     energy_min_opt=None, initial_min_opt=None,
@@ -34,9 +50,10 @@ def adjust_tensions(eptm, initial_guess, regularization,
                       initial point search. Ignored if main_min_opt['method']
                       is not 'PSQP' or 'SLSQP'.
     main_min_opt : option dictionnary for the main optimization. Syntax depends
-                   on the method. For bgfs and SLSQP use the scipy.optimize.minimize
-                   syntax. For trf and lm use the scipy.optimize.least_squares
-                   method. For PSQP the syntax is :
+                   on the method. For bgfs and SLSQP use the
+                   scipy.optimize.minimize syntax. For trf and lm use the
+                   scipy.optimize.least_squares method.
+                   For PSQP the syntax is :
                    'lb' : lower bound of the Parameters
                    'ub' : upper bound of the Parameters
                    'method': PSQP
@@ -70,6 +87,7 @@ def adjust_tensions(eptm, initial_guess, regularization,
     else:
         print(f"Unknown method : f{main_min_opt['method']}")
     return -1
+
 
 def adjust_areas(eptm, initial_guess, opt_tensions,
                  energy_min_opt=None,
@@ -106,17 +124,18 @@ def adjust_areas(eptm, initial_guess, opt_tensions,
     elif main_min_opt['method'] in ('trf', 'lm'):
         return least_squares(_opt_dist, initial_guess,
                              **main_min_opt,
-                             args=(organo, {'dic':{}, 'weight':0},
+                             args=(organo, {'dic': {}, 'weight': 0},
                                    False, opt_tensions),
                              kwargs=minimize_opt)
     elif main_min_opt['method'] == 'dist_PSQP':
-        return _psqp_dist_opt(organo, initial_guess, {'dic':{}, 'weight':0},
+        return _psqp_dist_opt(organo, initial_guess, {'dic': {}, 'weight': 0},
                               minimize_opt, minimize_opt,
                               opt_tensions=opt_tensions,
                               **main_min_opt)
     else:
         print(f"Unknown method : f{main_min_opt['method']}")
     return -1
+
 
 def _slsqp_opt(organo, initial_guess, regularization,
                minimize_opt, initial_min_opt,
@@ -141,6 +160,7 @@ def _slsqp_opt(organo, initial_guess, regularization,
     print(f"Initial point search failed with message :\
           \nf{initial_point.message}")
     return -1
+
 
 def _psqp_ener_opt(organo, initial_guess, regularization,
                    minimize_opt, initial_min_opt,
@@ -182,6 +202,7 @@ def _psqp_ener_opt(organo, initial_guess, regularization,
           \nf{initial_point.message}")
     return -1
 
+
 def _psqp_dist_opt(organo, initial_guess, regularization,
                    minimize_opt, energy_min_opt,
                    opt_tensions=None,
@@ -217,6 +238,7 @@ def _psqp_dist_opt(organo, initial_guess, regularization,
                                 minimize_opt=minimize_opt)
     return {'fun': fstr, 'x': xstr, 'message': inform}
 
+
 def _cst_dist(tension_array, organo, initial_dist, regularization,
               opt_tensions=None, **minimize_opt):
     error = _opt_dist(tension_array, organo, regularization, True,
@@ -225,12 +247,14 @@ def _cst_dist(tension_array, organo, initial_dist, regularization,
                                       np.full(2*organo.Nf, 0.1))
     cst = list(initial_dist_table-error)
     bounds = list(-tension_array)
-    return  cst + bounds
+    return cst + bounds
+
 
 def _slsqp_cst(tension_array, organo, initial_dist, regularization,
                **minimize_opt):
     return _cst_dist(tension_array, organo, initial_dist, regularization,
                      **minimize_opt)[:2*organo.Nf]
+
 
 def _cst_ener(var_table, organo, initial_ener,
               opt_tensions, **minimize_opt):
@@ -238,7 +262,8 @@ def _cst_ener(var_table, organo, initial_ener,
                      opt_tensions=opt_tensions,
                      **minimize_opt)
     bounds = list(-var_table)
-    return  [initial_ener - ener] + bounds
+    return [initial_ener - ener] + bounds
+
 
 def _opt_ener(var_table, organo,
               opt_tensions=None,
@@ -252,10 +277,22 @@ def _opt_ener(var_table, organo,
         variables[('edge', 'line_tension')] = prepare_tensions(tmp_organo,
                                                                opt_tensions)
         variables[('face', 'prefered_area')] = var_table
-    if len(var_table)%organo.Nf != 0:
+    if len(var_table) % organo.Nf != 0:
         variables[('lumen_prefered_vol', None)] = var_table[-1]
     return _energy(tmp_organo, variables, solver, geom, model,
+
                    **minimize_opt)
+
+
+def _scale_opt_obj(scale, organo, tensions_array):
+    tmp_eptm = organo.copy()
+    tmp_eptm.edge_df.loc[:, 'line_tension'] = prepare_tensions(tmp_eptm,
+                                                               scale *
+                                                               tensions_array)
+    solver.find_energy_min(scaled_tensions_organo, geom, model)
+    return np.sum(np.linalg.norm(_distance(organo,
+                                           scaled_tensions_organo), axis=1))
+
 
 def _opt_dist(var_table, organo, regularization, sum_obj,
               opt_tensions=None, **minimize_opt):
@@ -268,7 +305,7 @@ def _opt_dist(var_table, organo, regularization, sum_obj,
         variables[('edge', 'line_tension')] = prepare_tensions(organo,
                                                                opt_tensions)
         variables[('face', 'prefered_area')] = var_table
-    if len(var_table)%organo.Nf != 0:
+    if len(var_table) % organo.Nf != 0:
         variables[('lumen_prefered_vol', None)] = var_table[-1]
     return distance_regularized(tmp_organo, organo, variables,
                                 solver, geom, model,
@@ -277,11 +314,13 @@ def _opt_dist(var_table, organo, regularization, sum_obj,
                                 sum_residuals=sum_obj,
                                 **minimize_opt)
 
+
 def _obj_bfgs(initial_guess, organo, regularization, minimize_opt):
     dist = np.sum(_opt_dist(initial_guess, organo, regularization, True,
                             **minimize_opt))
-    #ener = _opt_ener(initial_guess, organo, **minimize_opt)
+    # ener = _opt_ener(initial_guess, organo, **minimize_opt)
     return dist
+
 
 def _wrap_obj_and_const(var_table, **kwargs):
     if kwargs['pb_obj'] == 'min_ener':
@@ -311,6 +350,7 @@ def _wrap_obj_and_const(var_table, **kwargs):
         fail = 1
     return fun, const, fail
 
+
 def _create_pyopt_model(obj_fun, initial_guess, main_min_opt,
                         pb_obj='min_dist'):
     if pb_obj == 'min_ener':
@@ -332,6 +372,7 @@ def _create_pyopt_model(obj_fun, initial_guess, main_min_opt,
         opt_prob.addCon('ener', 'i')
         opt_prob.addConGroup('bounds', len(initial_guess), 'i')
     return opt_prob
+
 
 def prepare_tensions(organo, tension_array):
     """Match the tension in a reduced array to an organo dataset
@@ -355,6 +396,47 @@ def prepare_tensions(organo, tension_array):
         tension_array[2*organo.Nf:3*organo.Nf], -1)
     return tensions
 
+
+def _scan_scale_factor(organo, tensions_array,
+                       lb=0.0, ub=10.0,
+                       start_ss=1.0, end_ss=1e-3,
+                       geom=geom, model=model):
+    """Find an initial point for the scale factor optimization
+
+    Parameters
+    ----------
+    organo : :class:`Epithelium` object
+    tension_array : vector of initial line tensions (size 3*Nf)
+    lb, ub : float. Set the lower and upper bounds for the search space.
+    start_ss, end_ss : float. Set the starting and ending step size for the
+      search space scan.
+    geom : current tyssue Geometry.
+    model : current tyssue model.
+
+    Return
+    ----------
+    float. The initial scaling factor from which to search for the optimal
+    scale factor.
+    """
+    step_size = start_ss
+    while step_size >= end_ss:
+        facts = np.arange(lb, ub, step_size)
+        dists = np.zeros(int((ub-lb)/step_size))
+        for ind, fact in enumerate(facts):
+            tmp_eptm = organo.copy()
+            tmp_eptm.edge_df.line_tension = prepare_tensions(tmp_eptm,
+                                                             fact *
+                                                             tensions_array)
+            solver.find_energy_min(tmp_eptm, geom, model)
+            dists[ind] = np.sum(np.linalg.norm(_distance(tmp_eptm,
+                                                         organo), axis=1))
+        approx_argmin = np.argmin(dists)
+        lb = max(0, lb + facts[approx_argmin] - 0.5*step_size)
+        ub = lb + facts[approx_argmin] + 0.5*step_size
+        step_size /= 10
+    return facts[approx_argmin]
+
+
 def set_init_point(r_in, r_out, nb_cells, alpha):
     """Define the initial point as proposed in the doc (in french)
     https://www.sharelatex.com/read/zdxptpnrryhc
@@ -376,10 +458,10 @@ def set_init_point(r_in, r_out, nb_cells, alpha):
     initial_point = np.zeros(3*nb_cells)
     area = (r_out**2-r_in**2)/2*np.sin(2*np.pi/nb_cells)
     initial_point[:nb_cells] = np.full(nb_cells,
-                                       2*np.cos(np.pi/nb_cells)*
+                                       2*np.cos(np.pi/nb_cells) *
                                        area*(alpha-1)*(r_out-r_in))
     initial_point[2*nb_cells:] = np.full(nb_cells,
-                                         np.sin(2*np.pi/nb_cells)/2*
+                                         np.sin(2*np.pi/nb_cells)/2 *
                                          area*(alpha-1)*r_out)
     """
     Initial point with the Moore-Penrose pseudo inverse used to solve
