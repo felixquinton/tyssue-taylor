@@ -5,9 +5,6 @@ for each edges, identify adjacent faces
 build the M coefficient matrix that will be inverted.
 We use this paper : Mechanical Stress inference
 for Two Dimensional Cell Arrays, K.Chiou et al., 2012
-//////\\\\\\
-IN PROGRESS
-\\\\\\//////
 To use force inference, please call the infer_forces function.
 The doc-string of infer_forces is given below :
     Uses the functions defined above to compute the initial
@@ -228,12 +225,10 @@ def _coefs_areas_coefs(organo, grad_srce, grad_trgt, grad_lumen):
     coefs_y_basal = np.insert(coefs_y_basal,
                               np.arange(1, 2*organo.basal_edges.shape[0]+1, 2),
                               np.zeros(organo.basal_edges.shape[0]))
-    print(coefs_x_apical)
     coefs_x_apical = np.divide(np.ones(coefs_x_apical.shape),
                                coefs_x_apical,
                                out=np.zeros_like(coefs_x_apical),
                                where=coefs_x_apical != 0)
-    print(coefs_x_apical)
     coefs_y_apical = np.divide(np.ones(coefs_y_apical.shape),
                                coefs_y_apical,
                                out=np.zeros_like(coefs_y_apical),
@@ -246,8 +241,8 @@ def _coefs_areas_coefs(organo, grad_srce, grad_trgt, grad_lumen):
                               coefs_y_basal,
                               out=np.zeros_like(coefs_y_basal),
                               where=coefs_y_basal != 0)
-    return {'api_x': coefs_x_apical, 'api_y': coefs_y_apical,
-            'bas_x': coefs_x_basal, 'bas_y': coefs_y_basal}
+    return {'api_x': -coefs_x_apical, 'api_y': -coefs_y_apical,
+            'bas_x': -coefs_x_basal, 'bas_y': -coefs_y_basal}
 
 def _areas_coefs(organo, no_scale):
     grad_lumen = _lumen_grad(organo) #lumen area's gradient
@@ -445,7 +440,7 @@ if __name__ == "__main__":
     #DF_CONSTANT.to_csv('b_'+str(NF)+'cells.csv', index=False)
     #RES_INFERENCE = _linear_model(ORGANO, 'areas')
     #RES_INFERENCE = _qp_model(ORGANO, 'simple', True, 0)
-    RES_INFERENCE = infer_forces(ORGANO, method='LINALG',
+    RES_INFERENCE = infer_forces(ORGANO, method='NNLS',
                                  sup_param='areas', no_scale=False)
     print('Mean tension :', RES_INFERENCE['tensions'].mean())
     TO_VECT_RES = np.concatenate((RES_INFERENCE['tensions'],

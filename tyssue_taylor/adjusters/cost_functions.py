@@ -48,6 +48,7 @@ def distance_regularized(eptm, objective_eptm, variables,
         obj = np.sum(np.concatenate((dist, reg_mod, tension_bound)))
     else:
         obj = np.concatenate((dist, reg_mod, tension_bound))
+    #print(obj)
     return obj
 
 def _energy(eptm, variables, solver, geom, model, **kwargs):

@@ -11,6 +11,8 @@ from .cost_functions import _distance, _energy, distance_regularized
 from ..models.annular import AnnularGeometry as geom
 from ..models.annular import model
 
+def adjust_scale(eptm, tensions_array):
+    return None
 
 def adjust_tensions(eptm, initial_guess, regularization,
                     energy_min_opt=None, initial_min_opt=None,
@@ -233,12 +235,14 @@ def _slsqp_cst(tension_array, organo, initial_dist, regularization,
 def _cst_ener(var_table, organo, initial_ener,
               opt_tensions, **minimize_opt):
     ener = _opt_ener(var_table, organo,
-                     opt_tensions=opt_tensions, **minimize_opt)
+                     opt_tensions=opt_tensions,
+                     **minimize_opt)
     bounds = list(-var_table)
     return  [initial_ener - ener] + bounds
 
 def _opt_ener(var_table, organo,
-              opt_tensions=None, **minimize_opt):
+              opt_tensions=None,
+              **minimize_opt):
     tmp_organo = organo.copy()
     variables = {}
     if opt_tensions is None:
@@ -313,7 +317,8 @@ def _create_pyopt_model(obj_fun, initial_guess, main_min_opt,
         opt_prob = pyOpt.Optimization('Energy minimization problem', obj_fun)
         opt_prob.addObj('energy')
         opt_prob.addVarGroup('L', len(initial_guess), 'c',
-                             value=initial_guess, lower=main_min_opt['lb'],
+                             value=initial_guess,
+                             lower=main_min_opt['lb'],
                              upper=main_min_opt['ub'])
         opt_prob.addConGroup('distance', int(2/3*len(initial_guess)), 'i')
         opt_prob.addConGroup('bounds', len(initial_guess), 'i')
@@ -321,7 +326,8 @@ def _create_pyopt_model(obj_fun, initial_guess, main_min_opt,
         opt_prob = pyOpt.Optimization('Distance minimization problem', obj_fun)
         opt_prob.addObj('distance')
         opt_prob.addVarGroup('L', len(initial_guess), 'c',
-                             value=initial_guess, lower=main_min_opt['lb'],
+                             value=initial_guess,
+                             lower=main_min_opt['lb'],
                              upper=main_min_opt['ub'])
         opt_prob.addCon('ener', 'i')
         opt_prob.addConGroup('bounds', len(initial_guess), 'i')
