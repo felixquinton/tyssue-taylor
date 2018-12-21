@@ -289,9 +289,8 @@ def _scale_opt_obj(scale, organo, tensions_array):
     tmp_eptm.edge_df.loc[:, 'line_tension'] = prepare_tensions(tmp_eptm,
                                                                scale *
                                                                tensions_array)
-    solver.find_energy_min(scaled_tensions_organo, geom, model)
-    return np.sum(np.linalg.norm(_distance(organo,
-                                           scaled_tensions_organo), axis=1))
+    solver.find_energy_min(tmp_eptm, geom, model)
+    return np.sum(np.linalg.norm(_distance(organo, tmp_eptm), axis=1))
 
 
 def _opt_dist(var_table, organo, regularization, sum_obj,

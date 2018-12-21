@@ -47,6 +47,7 @@ from tyssue_taylor.models.annular import model
 from tyssue_taylor.adjusters.adjust_annular import (set_init_point,
                                                     prepare_tensions)
 
+
 def _adj_edges(organo):
     """Identify the adjacents edges for a given vertex
     *****************
@@ -63,6 +64,7 @@ def _adj_edges(organo):
                        (organo.Nv, 1))
     adj_edges = np.hstack((srcs, trgts))
     return adj_edges
+
 
 def _adj_faces(organo):
     """Identify the couple of faces separated by the edges adjacent
@@ -91,6 +93,7 @@ def _adj_faces(organo):
                                              organo.Nf))).T
     return faces
 
+
 def _coef_matrix(organo, sup_param='', no_scale=False):
     organo.get_extra_indices()
     u_ij = organo.edge_df.eval('dx / length')
@@ -99,26 +102,29 @@ def _coef_matrix(organo, sup_param='', no_scale=False):
 
     coef_shape = (2*organo.Nv+(not no_scale), organo.Ne)
     srce_rows = np.concatenate([
-        organo.edge_df.srce,              ## x lines
-        organo.edge_df.srce + organo.Nv   ## y lines
+        organo.edge_df.srce,              # x lines
+        organo.edge_df.srce + organo.Nv   # y lines
     ])
 
     trgt_rows = np.concatenate([
-        organo.edge_df.trgt,              ## x lines
-        organo.edge_df.trgt + organo.Nv   ## y lines
+        organo.edge_df.trgt,              # x lines
+        organo.edge_df.trgt + organo.Nv   # y lines
     ])
 
-    cols = np.r_[:organo.Ne, :organo.Ne] ## [0 ... Ne, 0 ... Ne]
+    cols = np.r_[:organo.Ne, :organo.Ne]  # [0 ... Ne, 0 ... Ne]
 
-    coef_srce = sparse.coo_matrix((uv_ij, (srce_rows, cols)), shape=coef_shape)
-    coef_trgt = sparse.coo_matrix((-uv_ij, (trgt_rows, cols)), shape=coef_shape)
+    coef_srce = sparse.coo_matrix((uv_ij, (srce_rows, cols)),
+                                  shape=coef_shape)
+    coef_trgt = sparse.coo_matrix((-uv_ij, (trgt_rows, cols)),
+                                  shape=coef_shape)
     # Ones every where on the last line
     if no_scale:
         coef = coef_srce + coef_trgt
     else:
         coef_sum_t = sparse.coo_matrix((np.ones(organo.Ne),
                                         (np.ones(organo.Ne)*2*organo.Nv,
-                                         np.arange(organo.Ne))), shape=coef_shape)
+                                         np.arange(organo.Ne))),
+                                       shape=coef_shape)
         coef = coef_srce + coef_trgt + coef_sum_t
 
     # As tensions are equal for edge pairs, we can solve for only
@@ -132,10 +138,11 @@ def _coef_matrix(organo, sup_param='', no_scale=False):
         coef = np.hstack((coef, _pression_coefs(organo, no_scale)))
     return coef
 
+
 def _pression_coefs(organo, no_scale):
     beta_x = 0.5*organo.edge_df.dy[organo.sgle_edges].copy()
     beta_y = -0.5*organo.edge_df.dx[organo.sgle_edges].copy()
-    #cell to cell coefficients are placed on 4 stacked diagonal matrix
+    # cell to cell coefficients are placed on 4 stacked diagonal matrix
     coef_lat_pres = np.vstack((
         np.diag(beta_x[np.intersect1d(organo.sgle_edges.values,
                                       organo.lateral_edges.values)]),
@@ -152,7 +159,7 @@ def _pression_coefs(organo, no_scale):
         np.add(beta_y[organo.apical_edges],
                np.roll(beta_y[organo.apical_edges], 1)),
         np.zeros(organo.Nf)))
-    #exterior to cell coefficients in a columnar vector
+    # exterior to cell coefficients in a columnar vector
     coef_bas_pres = np.concatenate((
         np.zeros(organo.Nf),
         np.add(beta_x[organo.basal_edges],
@@ -167,10 +174,11 @@ def _pression_coefs(organo, no_scale):
         pres_coef = np.vstack((pres_coef, np.zeros(organo.Nf+2)))
     return pres_coef
 
+
 def _lumen_grad(eptm):
-    srce_pos = eptm.upcast_srce(eptm.vert_df[['x', 'y']]).loc[eptm.apical_edges]
-    trgt_pos = eptm.upcast_trgt(eptm.vert_df[['x', 'y']]).loc[eptm.apical_edges]
-    apical_edge_pos = (srce_pos + trgt_pos)/2
+    src_pos = eptm.upcast_src(eptm.vert_df[['x', 'y']]).loc[eptm.apical_edges]
+    trg_pos = eptm.upcast_trg(eptm.vert_df[['x', 'y']]).loc[eptm.apical_edges]
+    apical_edge_pos = (src_pos + trg_pos)/2
     apical_edge_coords = eptm.edge_df.loc[eptm.apical_edges,
                                           ['dx', 'dy']]
     grad_x = (- 0.5*apical_edge_coords['dy']
@@ -178,6 +186,7 @@ def _lumen_grad(eptm):
     grad_y = (- apical_edge_pos['x']
               - 0.5*apical_edge_coords['dx']).values
     return np.c_[grad_x, grad_y]
+
 
 def _indices_areas_coefs(organo):
     """
@@ -188,17 +197,18 @@ def _indices_areas_coefs(organo):
     nb_basal = organo.apical_edges.shape[0]
     apical_verts = organo.edge_df.srce[organo.apical_edges].values
     basal_verts = organo.edge_df.srce[organo.basal_edges].values
-    apical_rows = np.c_[(apical_verts - 1)%nb_api, #cell on the left
-                        apical_verts%nb_api, #cell on the right
-                        np.full(nb_api, nb_api)].flatten() #lumen
-    #apical_rows = np.c_[apical_rows, ]
-    basal_rows = np.c_[(basal_verts - 1)%nb_basal, #cell on the left
-                       basal_verts%nb_basal, #cell on the right
-                       np.full(nb_basal, nb_basal)].flatten() #exterior
+    apical_rows = np.c_[(apical_verts - 1) % nb_api,  # cell on the left
+                        apical_verts % nb_api,  # cell on the right
+                        np.full(nb_api, nb_api)].flatten()  # lumen
+    # apical_rows = np.c_[apical_rows, ]
+    basal_rows = np.c_[(basal_verts - 1) % nb_basal,  # cell on the left
+                       basal_verts % nb_basal,  # cell on the right
+                       np.full(nb_basal, nb_basal)].flatten()  # exterior
     apical_cols = np.repeat(np.arange(organo.apical_edges.shape[0]), 3)
     basal_cols = np.repeat(np.arange(organo.basal_edges.shape[0]), 3)
     return {'api_rows': apical_rows, 'api_cols': apical_cols,
             'bas_rows': basal_rows, 'bas_cols': basal_cols}
+
 
 def _coefs_areas_coefs(organo, grad_srce, grad_trgt, grad_lumen):
     """
@@ -211,19 +221,27 @@ def _coefs_areas_coefs(organo, grad_srce, grad_trgt, grad_lumen):
     grad_factors = np.tile(organo.face_df.area_elasticity, 2)
     coefs_x_apical = np.multiply(grad_factors, per_vertex_grad_x)
     coefs_x_apical = np.insert(coefs_x_apical,
-                               np.arange(1, 2*organo.apical_edges.shape[0]+1, 2),
+                               np.arange(1,
+                                         2*organo.apical_edges.shape[0]+1,
+                                         2),
                                grad_lumen[:, 0])
     coefs_y_apical = np.multiply(grad_factors, per_vertex_grad_y)
     coefs_y_apical = np.insert(coefs_y_apical,
-                               np.arange(1, 2*organo.apical_edges.shape[0]+1, 2),
+                               np.arange(1,
+                                         2*organo.apical_edges.shape[0]+1,
+                                         2),
                                grad_lumen[:, 1])
     coefs_x_basal = np.multiply(grad_factors, per_vertex_grad_x)
     coefs_x_basal = np.insert(coefs_x_basal,
-                              np.arange(1, 2*organo.basal_edges.shape[0]+1, 2),
+                              np.arange(1,
+                                        2*organo.basal_edges.shape[0]+1,
+                                        2),
                               np.zeros(organo.basal_edges.shape[0]))
     coefs_y_basal = np.multiply(grad_factors, per_vertex_grad_y)
     coefs_y_basal = np.insert(coefs_y_basal,
-                              np.arange(1, 2*organo.basal_edges.shape[0]+1, 2),
+                              np.arange(1,
+                                        2*organo.basal_edges.shape[0]+1,
+                                        2),
                               np.zeros(organo.basal_edges.shape[0]))
     coefs_x_apical = np.divide(np.ones(coefs_x_apical.shape),
                                coefs_x_apical,
@@ -244,13 +262,14 @@ def _coefs_areas_coefs(organo, grad_srce, grad_trgt, grad_lumen):
     return {'api_x': -coefs_x_apical, 'api_y': -coefs_y_apical,
             'bas_x': -coefs_x_basal, 'bas_y': -coefs_y_basal}
 
+
 def _areas_coefs(organo, no_scale):
-    grad_lumen = _lumen_grad(organo) #lumen area's gradient
-    ind_dic = _indices_areas_coefs(organo) #coo_matrix indices
-    grad_srce, grad_trgt = area_grad(organo) #cell's areas gradient
+    grad_lumen = _lumen_grad(organo)  # lumen area's gradient
+    ind_dic = _indices_areas_coefs(organo)  # coo_matrix indices
+    grad_srce, grad_trgt = area_grad(organo)  # cell's areas gradient
     coef_shape = (organo.apical_edges.shape[0], organo.Nf+1)
     coefs = _coefs_areas_coefs(organo, grad_srce, grad_trgt, grad_lumen)
-    #print(coefs)
+    # print(coefs)
     coef_x_apical = sparse.coo_matrix((coefs['api_x'],
                                        (ind_dic['api_cols'],
                                         ind_dic['api_rows'])),
@@ -275,19 +294,23 @@ def _areas_coefs(organo, no_scale):
         area_coefs = np.vstack((area_coefs, np.zeros(organo.Nf+1)))
     return area_coefs
 
+
 def _right_side(organo, coefs):
     res = np.zeros(coefs.shape[0])
     res[-organo.Nf-1:-1] = organo.face_df.area
     res[-1] = organo.Ne*3/4
-    #print(res)
+    # print(res)
     return res
+
 
 def _moore_penrose_inverse(organo, sup_param, no_scale):
     coefs = _coef_matrix(organo, sup_param, no_scale)
     inv = np.linalg.pinv(coefs)
-    #constant stands for the right side of equation (8) of the referenced paper
+    # constant stands for the right side of equation (8) of
+    # the referenced paper
     system_sol = np.dot(inv, _right_side(organo, coefs))
     return system_sol
+
 
 def _nnls_model(organo, sup_param, no_scale, verbose):
     coefs = _coef_matrix(organo, sup_param, no_scale)
@@ -295,6 +318,7 @@ def _nnls_model(organo, sup_param, no_scale, verbose):
     if verbose:
         print(res)
     return res
+
 
 def _linear_algebra(organo, sup_param, no_scale):
     coefs = _coef_matrix(organo, sup_param, no_scale)
@@ -306,6 +330,7 @@ def _qp_obj(params, coefs, constant):
     coefxparam = np.dot(coefs, params)
     dotminusconstant = coefxparam - constant
     return np.dot(dotminusconstant, dotminusconstant)
+
 
 def _qp_model(organo, init_method, sup_param, no_scale, verbose):
     coefs = _coef_matrix(organo, sup_param, no_scale)
@@ -326,6 +351,7 @@ def _qp_model(organo, init_method, sup_param, no_scale, verbose):
         print('\n\n\n', res)
     return res.x
 
+
 def infer_forces(organo, method='MP', init_method='simple',
                  sup_param='', no_scale=False, verbose=False):
     """Uses the functions defined above to compute the initial
@@ -335,10 +361,10 @@ def infer_forces(organo, method='MP', init_method='simple',
     Parameters:
     organo :  :class:`Epithelium` object
     method : string
-     one of 'MP' (default) for Moore-Penrose pseudo-inverse method, 'QP' to solve
-     the model with quadratic programming (which ensure non negative tensions)
-     or 'NNLS' which runs the non-negative least squares algorithm from
-     Lawson C., Hanson R.J., (1987) Solving Least Squares Problems.
+     one of 'MP' (default) for Moore-Penrose pseudo-inverse method, 'QP' to
+     solve the model with quadratic programming (which ensure non negative
+     tensions) or 'NNLS' which runs the non-negative least squares algorithm
+     from Lawson C., Hanson R.J., (1987) Solving Least Squares Problems.
      Update 12/10/2018 : the problem can be solve using basic linear algebra
      ig there is the same number of equations and variables. Use 'LINALG'.
     init_method : string
@@ -361,7 +387,8 @@ def infer_forces(organo, method='MP', init_method='simple',
     if method == 'MP':
         system_sol = _moore_penrose_inverse(organo, sup_param, no_scale)
     elif method == 'QP':
-        system_sol = _qp_model(organo, init_method, sup_param, no_scale, verbose)
+        system_sol = _qp_model(organo, init_method, sup_param,
+                               no_scale, verbose)
     elif method == 'NNLS':
         system_sol = _nnls_model(organo, sup_param, no_scale, verbose)
     elif method == 'LINALG':
@@ -376,6 +403,7 @@ def infer_forces(organo, method='MP', init_method='simple',
         dic_res = {'tensions': system_sol[:int(organo.Ne*0.75)]}
     return dic_res
 
+
 if __name__ == "__main__":
     NF = 3
     ORGANO = generate_ring(NF, 1, 2)
@@ -384,18 +412,18 @@ if __name__ == "__main__":
     np.random.seed(1553)
     # Model parameters or specifications
     SPECS = {
-        'face':{
+        'face': {
             'is_alive': 1,
             'prefered_area':  list(ALPHA*ORGANO.face_df.area.values),
-            'area_elasticity': 1.,},
-        'edge':{
+            'area_elasticity': 1., },
+        'edge': {
             'ux': 0.,
             'uy': 0.,
             'uz': 0.,
             'line_tension': 0.1,
             'is_active': 1
             },
-        'vert':{
+        'vert': {
             'adhesion_strength': 0.,
             'x_ecm': 0.,
             'y_ecm': 0.,
@@ -435,11 +463,11 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     for i in COEFS:
         print(i)
-    #DF_COEFS.to_csv('A_'+str(NF)+'cells.csv', index=False)
+    # DF_COEFS.to_csv('A_'+str(NF)+'cells.csv', index=False)
     DF_CONSTANT = pd.DataFrame(CONSTANT)
-    #DF_CONSTANT.to_csv('b_'+str(NF)+'cells.csv', index=False)
-    #RES_INFERENCE = _linear_model(ORGANO, 'areas')
-    #RES_INFERENCE = _qp_model(ORGANO, 'simple', True, 0)
+    # DF_CONSTANT.to_csv('b_'+str(NF)+'cells.csv', index=False)
+    # RES_INFERENCE = _linear_model(ORGANO, 'areas')
+    # RES_INFERENCE = _qp_model(ORGANO, 'simple', True, 0)
     RES_INFERENCE = infer_forces(ORGANO, method='NNLS',
                                  sup_param='areas', no_scale=False)
     print('Mean tension :', RES_INFERENCE['tensions'].mean())
@@ -448,4 +476,4 @@ if __name__ == "__main__":
     TO_VECT_RES = np.array(RES_INFERENCE['tensions'])
     print(RES_INFERENCE)
     DF_RES_INFERENCE = pd.DataFrame(TO_VECT_RES)
-    #DF_RES_INFERENCE.to_csv('x*_'+str(NF)+'nnls_cells.csv')
+    # DF_RES_INFERENCE.to_csv('x*_'+str(NF)+'nnls_cells.csv')

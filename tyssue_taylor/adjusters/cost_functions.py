@@ -4,6 +4,7 @@ process
 import warnings
 import numpy as np
 
+
 def distance_regularized(eptm, objective_eptm, variables,
                          solver, geom, model,
                          to_regularize={}, reg_weight=0,
@@ -43,13 +44,14 @@ def distance_regularized(eptm, objective_eptm, variables,
                                     objective_eptm, coords), axis=1)
     tension_bound = _tension_bounds(tmp_eptm)
     if sum_residuals:
-        #obj = dist + np.sum(np.concatenate((np.array(reg_mod),
+        # obj = dist + np.sum(np.concatenate((np.array(reg_mod),
         #                                    tension_bound.values)))
         obj = np.sum(np.concatenate((dist, reg_mod, tension_bound)))
     else:
         obj = np.concatenate((dist, reg_mod, tension_bound))
-    #print(obj)
+    # print(obj)
     return obj
+
 
 def _energy(eptm, variables, solver, geom, model, **kwargs):
     tmp_eptm = eptm.copy()
@@ -64,17 +66,19 @@ def _energy(eptm, variables, solver, geom, model, **kwargs):
         print(res.get('message', 'no message was provided'))
     return model.compute_energy(tmp_eptm)
 
+
 def _distance(actual_eptm, objective_eptm, coords=None):
     if coords is None:
         coords = objective_eptm.coords
     diff = np.subtract(np.array(actual_eptm.vert_df[coords].values),
                        np.array(objective_eptm.vert_df[coords].values))
-    #norm = np.linalg.norm(diff, axis=1)
+    # norm = np.linalg.norm(diff, axis=1)
     return diff
+
 
 def _reg_module(actual_eptm, reg_apical, reg_basal):
     apical_edges = actual_eptm.edge_df.loc[actual_eptm.apical_edges].copy()
-    apical_module = np.square(apical_edges.line_tension-
+    apical_module = np.square(apical_edges.line_tension -
                               np.roll(apical_edges.line_tension, -1))
     basal_edges = actual_eptm.edge_df.loc[actual_eptm.basal_edges].copy()
     basal_module = np.square(basal_edges.line_tension -
@@ -82,10 +86,12 @@ def _reg_module(actual_eptm, reg_apical, reg_basal):
     return np.concatenate((int(reg_apical)*np.asarray(apical_module),
                            int(reg_basal)*np.asarray(basal_module)))
 
+
 def _tension_bounds(actual_eptm, coords=None):
     if coords is None:
         coords = actual_eptm.coords
-    tensions = actual_eptm.edge_df.loc[:, 'line_tension'][:3*actual_eptm.Nf].copy()
+    tensions = (actual_eptm.edge_df.loc[:, 'line_tension']
+                [:3*actual_eptm.Nf].copy())
     tension_lb = -np.minimum(tensions, np.zeros(3*actual_eptm.Nf))
     tension_ub = np.zeros(3*actual_eptm.Nf)
     tension_ub[tensions > 1e3] = tensions[tensions > 1e3] - 1e3
