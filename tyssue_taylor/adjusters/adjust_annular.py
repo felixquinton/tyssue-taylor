@@ -2,6 +2,7 @@
 """
 
 import numpy as np
+import time
 from tyssue.solvers.sheet_vertex_solver import Solver as solver
 from tyssue import config
 from scipy.optimize import minimize, least_squares
@@ -16,13 +17,13 @@ def adjust_scale(organo, tensions_array,
                  lb=0.0, ub=10.0,
                  start_ss=1.0, end_ss=1e-3,
                  geom=geom, model=model,
-                 **min_opt):
+                 verbose=0, **min_opt):
     if min_opt.get('method', None) not in ('Golden', 'Nelder-Mead'):
         raise ValueError('Unknown method :', min_opt.get('method', None))
     tmp_eptm = organo.copy()
     initial_scale = _scan_scale_factor(tmp_eptm, tensions_array,
                                        lb, ub, start_ss, end_ss,
-                                       geom, model)
+                                       geom, model, verbose)
     scale_fact_res = minimize(_scale_opt_obj,
                               initial_scale,
                               args=(tmp_eptm, tensions_array),
@@ -399,7 +400,8 @@ def prepare_tensions(organo, tension_array):
 def _scan_scale_factor(organo, tensions_array,
                        lb=0.0, ub=10.0,
                        start_ss=1.0, end_ss=1e-3,
-                       geom=geom, model=model):
+                       geom=geom, model=model,
+                       verbose=0):
     """Find an initial point for the scale factor optimization
 
     Parameters
@@ -411,17 +413,28 @@ def _scan_scale_factor(organo, tensions_array,
       search space scan.
     geom : current tyssue Geometry.
     model : current tyssue model.
+    verbose : 0 = No print ; 1 = Print at the end of the search ;
+     2 = Print at each iteration and at the end of the search
 
     Return
     ----------
     float. The initial scaling factor from which to search for the optimal
     scale factor.
     """
+    if verbose > 0:
+        start_time = time.time()
+        nb_iter = 0
+        nfev = 0
+        if verbose > 1:
+            print('{0:4s}   {1:7s}   {2:5s}   {3:8s}   {4:8s}'.format(
+                'iter', 'time', 'nfev', 'incumbent', 'f(incumbent)'))
     step_size = start_ss
     while step_size >= end_ss:
         facts = np.arange(lb, ub, step_size)
         dists = np.zeros(int((ub-lb)/step_size))
         for ind, fact in enumerate(facts):
+            if verbose > 0:
+                nfev += 1
             tmp_eptm = organo.copy()
             tmp_eptm.edge_df.line_tension = prepare_tensions(tmp_eptm,
                                                              fact *
@@ -433,6 +446,22 @@ def _scan_scale_factor(organo, tensions_array,
         lb = max(0, lb + facts[approx_argmin] - 0.5*step_size)
         ub = lb + facts[approx_argmin] + 0.5*step_size
         step_size /= 10
+        if verbose > 0:
+            nb_iter += 1
+            if verbose > 1:
+                current_time = time.time() - start_time
+                print(str('{0:4d}   {1:5.2f}   {2:5d}' +
+                          '      {3:3.5f}     {4:3.5f}').format(
+                    nb_iter, current_time, nfev,
+                    facts[approx_argmin], dists[approx_argmin]))
+    if verbose > 0:
+        end_time = time.time() - start_time
+        print(f"Brut force search summary\n\
+              solving time: {end_time}\n\
+              nb iter: {nb_iter}\n\
+              nfev: {nfev}\n\
+              x_ub: {facts[approx_argmin]}\n\
+              ub: {dists[approx_argmin]}")
     return facts[approx_argmin]
 
 
