@@ -43,7 +43,7 @@ from tyssue.generation import generate_ring
 from tyssue.dynamics.planar_gradients import area_grad
 from tyssue.solvers.sheet_vertex_solver import Solver
 from tyssue_taylor.models.annular import AnnularGeometry as geom
-from tyssue_taylor.models.annular import model
+from tyssue_taylor.models.annular import model, lumen_area_grad
 from tyssue_taylor.adjusters.adjust_annular import (set_init_point,
                                                     prepare_tensions)
 
@@ -175,19 +175,6 @@ def _pression_coefs(organo, no_scale):
     return pres_coef
 
 
-def _lumen_grad(eptm):
-    src_pos = eptm.upcast_src(eptm.vert_df[['x', 'y']]).loc[eptm.apical_edges]
-    trg_pos = eptm.upcast_trg(eptm.vert_df[['x', 'y']]).loc[eptm.apical_edges]
-    apical_edge_pos = (src_pos + trg_pos)/2
-    apical_edge_coords = eptm.edge_df.loc[eptm.apical_edges,
-                                          ['dx', 'dy']]
-    grad_x = (- 0.5*apical_edge_coords['dy']
-              - apical_edge_pos['y']).values
-    grad_y = (- apical_edge_pos['x']
-              - 0.5*apical_edge_coords['dx']).values
-    return np.c_[grad_x, grad_y]
-
-
 def _indices_areas_coefs(organo):
     """
     Build the indices to give to sparse.coo_matrix in order to built the
@@ -210,7 +197,9 @@ def _indices_areas_coefs(organo):
             'bas_rows': basal_rows, 'bas_cols': basal_cols}
 
 
-def _coefs_areas_coefs(organo, grad_srce, grad_trgt, grad_lumen):
+def _coefs_areas_coefs(organo,
+                       grad_srce, grad_trgt,
+                       grad_lumen_srce, grad_lumen_trgt):
     """
     Computes the coefficents for the matrix areas_coefs.
     """
@@ -218,31 +207,35 @@ def _coefs_areas_coefs(organo, grad_srce, grad_trgt, grad_lumen):
                          organo.sum_trgt(grad_trgt).gx).values
     per_vertex_grad_y = (organo.sum_srce(grad_srce).gy +
                          organo.sum_trgt(grad_trgt).gy).values
+    per_vertex_lumen_grad_x = (organo.sum_srce(grad_lumen_srce).gx +
+                               organo.sum_trgt(grad_lumen_trgt).gx).values
+    per_vertex_lumen_grad_y = (organo.sum_srce(grad_lumen_srce).gy +
+                               organo.sum_trgt(grad_lumen_trgt).gy).values
     grad_factors = np.tile(organo.face_df.area_elasticity, 2)
     coefs_x_apical = np.multiply(grad_factors, per_vertex_grad_x)
+    coefs_y_apical = np.multiply(grad_factors, per_vertex_grad_y)
+    coefs_x_basal = np.multiply(grad_factors, per_vertex_grad_x)
+    coefs_y_basal = np.multiply(grad_factors, per_vertex_grad_y)
     coefs_x_apical = np.insert(coefs_x_apical,
                                np.arange(1,
                                          2*organo.apical_edges.shape[0]+1,
                                          2),
-                               grad_lumen[:, 0])
-    coefs_y_apical = np.multiply(grad_factors, per_vertex_grad_y)
+                               per_vertex_lumen_grad_x[organo.apical_edges])
     coefs_y_apical = np.insert(coefs_y_apical,
                                np.arange(1,
                                          2*organo.apical_edges.shape[0]+1,
                                          2),
-                               grad_lumen[:, 1])
-    coefs_x_basal = np.multiply(grad_factors, per_vertex_grad_x)
+                               per_vertex_lumen_grad_y[organo.apical_edges])
     coefs_x_basal = np.insert(coefs_x_basal,
                               np.arange(1,
                                         2*organo.basal_edges.shape[0]+1,
                                         2),
-                              np.zeros(organo.basal_edges.shape[0]))
-    coefs_y_basal = np.multiply(grad_factors, per_vertex_grad_y)
+                              per_vertex_lumen_grad_x[organo.basal_edges])
     coefs_y_basal = np.insert(coefs_y_basal,
                               np.arange(1,
                                         2*organo.basal_edges.shape[0]+1,
                                         2),
-                              np.zeros(organo.basal_edges.shape[0]))
+                              per_vertex_lumen_grad_y[organo.basal_edges])
     coefs_x_apical = np.divide(np.ones(coefs_x_apical.shape),
                                coefs_x_apical,
                                out=np.zeros_like(coefs_x_apical),
@@ -264,11 +257,13 @@ def _coefs_areas_coefs(organo, grad_srce, grad_trgt, grad_lumen):
 
 
 def _areas_coefs(organo, no_scale):
-    grad_lumen = _lumen_grad(organo)  # lumen area's gradient
     ind_dic = _indices_areas_coefs(organo)  # coo_matrix indices
     grad_srce, grad_trgt = area_grad(organo)  # cell's areas gradient
+    grad_lumen_srce, grad_lumen_trgt = area_grad(organo)  # lumen gradient
     coef_shape = (organo.apical_edges.shape[0], organo.Nf+1)
-    coefs = _coefs_areas_coefs(organo, grad_srce, grad_trgt, grad_lumen)
+    coefs = _coefs_areas_coefs(organo,
+                               grad_srce, grad_trgt,
+                               grad_lumen_srce, grad_lumen_trgt)
     # print(coefs)
     coef_x_apical = sparse.coo_matrix((coefs['api_x'],
                                        (ind_dic['api_cols'],
