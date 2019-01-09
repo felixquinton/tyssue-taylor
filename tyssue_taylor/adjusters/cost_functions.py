@@ -3,13 +3,16 @@ process
 """
 import warnings
 import numpy as np
+import csv
 
 
 def distance_regularized(eptm, objective_eptm, variables,
                          solver, geom, model,
                          to_regularize={}, reg_weight=0,
                          sum_residuals=False,
-                         coords=None, **kwargs):
+                         coords=None,
+                         IPRINT=None,
+                         **kwargs):
     """Changes variables inplace in the epithelium, finds the energy minimum,
     and returns the distance between the new configuration and the objective
     epithelium.
@@ -26,6 +29,7 @@ def distance_regularized(eptm, objective_eptm, variables,
     **kwargs : keyword arguments passed to the energy optimisation
     variables is a dict of values. The keys are a pair with the element to
     change i.e.
+    IPRINT : string. Path to a file used to save the value of the distance.
     """
     tmp_eptm = eptm.copy()
     for (elem, columns), values in variables.items():
@@ -50,6 +54,16 @@ def distance_regularized(eptm, objective_eptm, variables,
     else:
         obj = np.concatenate((dist, reg_mod, tension_bound))
     # print(obj)
+    if IPRINT is not None:
+        with open(IPRINT, mode='a+') as csv_file:
+            csv_writer = csv.writer(csv_file, delimiter=',',
+                                    quotechar='"',
+                                    quoting=csv.QUOTE_MINIMAL)
+            if not sum_residuals:
+                csv_writer.writerow([np.sum(
+                    np.concatenate((dist, reg_mod, tension_bound)))])
+            else:
+                csv_writer.writerow([obj])
     return obj
 
 

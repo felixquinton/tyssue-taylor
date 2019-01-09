@@ -33,6 +33,7 @@ def adjust_scale(organo, tensions_array,
 
 def adjust_tensions(eptm, initial_guess, regularization,
                     energy_min_opt=None, initial_min_opt=None,
+                    iprint_file=None,
                     **main_min_opt):
     """Find the line tensions which minimize the distance to the epithelium
 
@@ -50,6 +51,8 @@ def adjust_tensions(eptm, initial_guess, regularization,
     initial_min_opt : scipy.optimize.minimize option dictionnary for the
                       initial point search. Ignored if main_min_opt['method']
                       is not 'PSQP' or 'SLSQP'.
+    iprint_file : string. Path to a csv or txt file to print the objective
+                    function evaluations during the optimization process.
     main_min_opt : option dictionnary for the main optimization. Syntax depends
                    on the method. For bgfs and SLSQP use the
                    scipy.optimize.minimize syntax. For trf and lm use the
@@ -71,7 +74,7 @@ def adjust_tensions(eptm, initial_guess, regularization,
                         args=(organo, regularization, minimize_opt))
     elif main_min_opt['method'] in ('trf', 'lm'):
         return least_squares(_opt_dist, initial_guess, **main_min_opt,
-                             args=(organo, regularization, False),
+                             args=(organo, regularization, False, iprint_file),
                              kwargs=minimize_opt)
     elif main_min_opt['method'] == 'SLSQP':
         return _slsqp_opt(organo, initial_guess, regularization,
@@ -281,7 +284,6 @@ def _opt_ener(var_table, organo,
     if len(var_table) % organo.Nf != 0:
         variables[('lumen_prefered_vol', None)] = var_table[-1]
     return _energy(tmp_organo, variables, solver, geom, model,
-
                    **minimize_opt)
 
 
@@ -295,7 +297,8 @@ def _scale_opt_obj(scale, organo, tensions_array):
 
 
 def _opt_dist(var_table, organo, regularization, sum_obj,
-              opt_tensions=None, **minimize_opt):
+              iprint_file=None, opt_tensions=None,
+              **minimize_opt):
     tmp_organo = organo.copy()
     variables = {}
     if opt_tensions is None:
@@ -312,6 +315,7 @@ def _opt_dist(var_table, organo, regularization, sum_obj,
                                 to_regularize=regularization['dic'],
                                 reg_weight=regularization['weight'],
                                 sum_residuals=sum_obj,
+                                IPRINT=iprint_file,
                                 **minimize_opt)
 
 
