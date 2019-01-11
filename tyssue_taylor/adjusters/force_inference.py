@@ -294,7 +294,6 @@ def _right_side(organo, coefs):
     res = np.zeros(coefs.shape[0])
     res[-organo.Nf-1:-1] = organo.face_df.area
     res[-1] = organo.Ne*3/4
-    # print(res)
     return res
 
 
