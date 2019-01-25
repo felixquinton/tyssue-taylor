@@ -34,6 +34,7 @@ def distance_regularized(eptm, objective_eptm, variables,
     tmp_eptm = eptm.copy()
     for (elem, columns), values in variables.items():
         if elem in tmp_eptm.data_names:
+            print(tmp_eptm.datasets[elem][columns], values)
             tmp_eptm.datasets[elem][columns] = values
         elif elem in tmp_eptm.settings:
             tmp_eptm.settings[elem] = values

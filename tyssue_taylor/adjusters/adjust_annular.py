@@ -31,6 +31,77 @@ def adjust_scale(organo, tensions_array,
     return scale_fact_res
 
 
+def adjust_parameters(eptm, initial_guess, regularization,
+                      parameters=[('edge', 'line_tension'),
+                                  ('face', 'prefered_area')],
+                      energy_min_opt=None, initial_min_opt=None,
+                      iprint_file=None,
+                      **main_min_opt):
+    """Find the line tensions which minimize the distance to the epithelium
+
+    Parameters
+    ----------
+    eptm : :class:`Epithelium` object
+    initial_guess : vector of initial parameters. Length depends of the
+      parameters to optimize.
+      !! MUST BE ORDERED ACCORDING TO parameters !!
+    regularization : dictionnary with fields :
+                        'dic' : dictionnary with fields 'apical' and 'basal'
+                        and boolean value indicating if the corresponding set
+                        of edges should be regularized.
+                        'weight' : float, weight of the regularization module
+    parameters : list of string couples. Each couple indicates the dataframe
+      and the dataframe's column that contains the optimization parameters.
+    energy_min_opt : scipy.optimize.minize option dictionnary for the energy
+                     minimization.
+    initial_min_opt : scipy.optimize.minimize option dictionnary for the
+                      initial point search. Ignored if main_min_opt['method']
+                      is not 'PSQP' or 'SLSQP'.
+    iprint_file : string. Path to a csv or txt file to print the objective
+                    function evaluations during the optimization process.
+    main_min_opt : option dictionnary for the main optimization. Syntax depends
+                   on the method. For bgfs and SLSQP use the
+                   scipy.optimize.minimize syntax. For trf and lm use the
+                   scipy.optimize.least_squares method.
+                   For PSQP the syntax is :
+                   'lb' : lower bound of the Parameters
+                   'ub' : upper bound of the Parameters
+                   'method': PSQP
+    """
+    organo = eptm.copy()
+    minimize_opt = config.solvers.minimize_spec()
+    print(main_min_opt)
+    if energy_min_opt is not None:
+        minimize_opt['minimize']['options'] = energy_min_opt.get(
+            'options',
+            minimize_opt['minimize']['options'])
+    if main_min_opt['method'] in ('trf', 'lm'):
+        print("I know I do LM")
+        return least_squares(_new_opt_dist, initial_guess, **main_min_opt,
+                             args=(organo, regularization, False,
+                                   parameters, iprint_file),
+                             kwargs=minimize_opt)
+    else:
+        print(f"Unknown method : f{main_min_opt['method']}")
+    return -1
+
+
+def _new_opt_dist(var_table, organo, regularization, sum_obj, parameters,
+                  iprint_file=None, **minimize_opt):
+    tmp_organo = organo.copy()
+    split_inds = np.cumsum([organo.datasets[elem][column].size
+                            for elem, column in parameters])
+    splitted_var = np.split(var_table, split_inds[:-1])
+    variables = _prepare_params(tmp_organo, splitted_var, parameters)
+    return distance_regularized(tmp_organo, organo, variables,
+                                solver, geom, model,
+                                to_regularize=regularization['dic'],
+                                reg_weight=regularization['weight'],
+                                sum_residuals=sum_obj,
+                                IPRINT=iprint_file,
+                                **minimize_opt)
+
+
 def adjust_tensions(eptm, initial_guess, regularization,
                     energy_min_opt=None, initial_min_opt=None,
                     iprint_file=None,
@@ -401,6 +472,39 @@ def prepare_tensions(organo, tension_array):
     return tensions
 
 
+def _prepare_params(organo, splitted_var, parameters):
+    """Match the tension in a reduced array to an organo dataset
+
+    Parameters
+    ----------
+    organo : :class:`Epithelium` object
+    tension_array : vector of initial line tensions (size 3*Nf)
+
+    Return
+    ----------
+    tensions : np.ndarray of size 4*Nf
+    the tensions array properly organised to fit into an organo dataset
+    """
+    variables = {}
+    for ind, (elem, param) in enumerate(parameters):
+        print(elem, param, splitted_var[ind][:-1])
+        if param == 'line_tension':
+            variables[(elem, param)] = prepare_tensions(
+                organo, splitted_var[ind])
+        elif (param == 'prefered_area' and
+              len(splitted_var[ind]) % organo.Nf != 0):
+            variables[('lumen_prefered_vol', None)] = splitted_var[ind][-1]
+            variables[(elem, param)] = splitted_var[ind][:-1]
+        else:
+            try:
+                variables[(elem, param)] = splitted_var[ind]
+            except KeyError as key_error:
+                print('Called key is unknown too the datasets: ', key_error)
+            except IndexError as ind_error:
+                print('Not enougth indices in parameters vector: ', key_error)
+    return variables
+
+
 def _scan_scale_factor(organo, tensions_array,
                        lb=0.0, ub=10.0,
                        start_ss=1.0, end_ss=1e-3,
@@ -496,7 +600,9 @@ def set_init_point(r_in, r_out, nb_cells, alpha):
                                          np.sin(2*np.pi/nb_cells)/2 *
                                          area*(alpha-1)*r_out)
     """
-    Initial point with the Moore-Penrose pseudo inverse used to solve
+    Initial point with the Moore-Penrose pseudo inverse used to solvevariables[('face', 'prefered_area')] = var_table
+    if len(var_table) % organo.Nf != 0:
+        variables[('lumen_prefered_vol', None)] = var_table[-1]
     the underdetermination of the system. Gives very large lateral tensions.
     The mesh obtained does not represent an organoid.
     """

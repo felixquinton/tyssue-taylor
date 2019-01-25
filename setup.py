@@ -8,7 +8,7 @@ from setuptools import find_packages
 
 DISTNAME = 'tyssue_taylor'
 DESCRIPTION = 'This package uses the tyssue library to adjust a vertex model to experimental microscopy data.'
-LONG_DESCRIPTION = ('ytssue_taylor provides optimization and segmentation methods to infer model parameter '
+LONG_DESCRIPTION = ('tyssue_taylor provides optimization and segmentation methods to infer model parameter '
                     ' that best reproduce in vivo data')
 MAINTAINER = 'Félix Quinton'
 MAINTAINER_EMAIL = 'fe.quinton@gmail.com'

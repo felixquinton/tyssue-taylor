@@ -33,6 +33,7 @@ The doc-string of infer_forces is given below :
                     pressions : the vector of pressions if computed
     *****************
 """
+import itertools
 import numpy as np
 import pandas as pd
 
@@ -44,6 +45,7 @@ from tyssue.dynamics.planar_gradients import area_grad
 from tyssue.solvers.sheet_vertex_solver import Solver
 from tyssue_taylor.models.annular import AnnularGeometry as geom
 from tyssue_taylor.models.annular import model, lumen_area_grad
+from tyssue_taylor.segmentation.segment2D import normalize_scale
 from tyssue_taylor.adjusters.adjust_annular import (set_init_point,
                                                     prepare_tensions)
 
@@ -95,9 +97,13 @@ def _adj_faces(organo):
 
 
 def _coef_matrix(organo, sup_param='', no_scale=False):
-    organo.get_extra_indices()
+    # organo.get_extra_indices()
     u_ij = organo.edge_df.eval('dx / length')
     v_ij = organo.edge_df.eval('dy / length')
+    # u_ij[organo.basal_edges] *= -1
+    # v_ij[organo.basal_edges] *= -1
+    # u_ij[organo.lateral_edges] *= 2
+    # v_ij[organo.lateral_edges] *= 2
     uv_ij = np.concatenate((u_ij, v_ij))
 
     coef_shape = (2*organo.Nv+(not no_scale), organo.Ne)
@@ -115,7 +121,7 @@ def _coef_matrix(organo, sup_param='', no_scale=False):
 
     coef_srce = sparse.coo_matrix((uv_ij, (srce_rows, cols)),
                                   shape=coef_shape)
-    coef_trgt = sparse.coo_matrix((uv_ij, (trgt_rows, cols)),
+    coef_trgt = sparse.coo_matrix((-uv_ij, (trgt_rows, cols)),
                                   shape=coef_shape)
     # Ones every where on the last line
     if no_scale:
@@ -131,7 +137,7 @@ def _coef_matrix(organo, sup_param='', no_scale=False):
     # the single edges. An index over only one half-edge per edge
     # can be obtained with:
 
-    coef = coef[:, organo.sgle_edges].toarray()
+    coef = coef[:, 0:organo.Nf*3].toarray()
     if sup_param == 'areas':
         coef = np.c_[coef, _areas_coefs(organo, no_scale)]
     elif sup_param == 'pressions':
@@ -204,7 +210,7 @@ def _areas_coefs(organo, no_scale):
     area_elasticity = np.tile(np.hstack([organo.face_df.area_elasticity,
                                          organo.settings['lumen_elasticity']]),
                               (2*organo.Nv, 1))
-    area_coefs *= area_elasticity
+    area_coefs = np.multiply(area_coefs, area_elasticity)
     if not no_scale:
         area_coefs = np.vstack((area_coefs, np.zeros(organo.Nf+1)))
     return area_coefs
@@ -212,8 +218,7 @@ def _areas_coefs(organo, no_scale):
 
 def _right_side(organo, coefs):
     res = np.zeros(coefs.shape[0])
-    res[-organo.Nf-1:-1] = organo.face_df.area
-    res[-1] = organo.Ne*3/4
+    res[-1] = 0.009  # organo.Ne*3/4
     return res
 
 
@@ -228,30 +233,34 @@ def _moore_penrose_inverse(organo, sup_param, no_scale):
 
 def _nnls_model(organo, sup_param, no_scale, verbose):
     coefs = _coef_matrix(organo, sup_param, no_scale)
-    print(coefs)
     res, _ = nnls(coefs, _right_side(organo, coefs))
     if verbose:
         print(res)
     return res
 
 
-def _linear_algebra(organo, sup_param, no_scale):
+def _linear_algebra(organo, sup_param, no_scale, mult=None):
     coefs = _coef_matrix(organo, sup_param, no_scale)
+    if mult is not None:
+        coefs = np.multiply(coefs, mult)
     system_sol = np.linalg.solve(coefs, _right_side(organo, coefs))
     return system_sol
 
 
-def _qp_obj(params, coefs, constant):
-    coefxparam = np.dot(coefs, params)
-    dotminusconstant = coefxparam - constant
+def _qp_obj(x, organo, sup_param, no_scale):
+    coefs = _coef_matrix(organo, sup_param, no_scale)
+    left_side = np.dot(coefs, x)
+    dotminusconstant = left_side - _right_side(organo, coefs)
     return np.dot(dotminusconstant, dotminusconstant)
 
 
 def _qp_model(organo, init_method, sup_param, no_scale, verbose):
     coefs = _coef_matrix(organo, sup_param, no_scale)
-    bounds = [(0, None)]*int(organo.Ne*0.75)+[(0, None)]*(organo.Nf+1)
+    bounds = [(0, None)]*int(organo.Ne*0.75)
+    if sup_param != '':
+        bounds += [(0, None)]*(organo.Nf+1)
     if init_method == 'simple':
-        init_point = np.zeros(int(organo.Ne*0.75)+organo.Nf+1)
+        init_point = np.zeros(coefs.shape[1])
     elif init_method == 'moore-penrose':
         init_point = _moore_penrose_inverse(organo, sup_param, no_scale)
         print('The initial point was obtained using the Moore-Penrose \
@@ -259,7 +268,7 @@ def _qp_model(organo, init_method, sup_param, no_scale, verbose):
               Initial point : \n', init_point)
     res = minimize(_qp_obj,
                    init_point,
-                   args=(coefs, _right_side(organo, coefs)),
+                   args=(organo, sup_param, no_scale),
                    method='L-BFGS-B',
                    bounds=bounds)
     if verbose:
@@ -268,7 +277,7 @@ def _qp_model(organo, init_method, sup_param, no_scale, verbose):
 
 
 def infer_forces(organo, method='MP', init_method='simple',
-                 sup_param='', no_scale=False, verbose=False):
+                 sup_param='', no_scale=False, mult=None, verbose=False):
     """Uses the functions defined above to compute the initial
     guess given by the force inference method with Moore-Penrose
     pseudo-inverse.
@@ -307,7 +316,7 @@ def infer_forces(organo, method='MP', init_method='simple',
     elif method == 'NNLS':
         system_sol = _nnls_model(organo, sup_param, no_scale, verbose)
     elif method == 'LINALG':
-        system_sol = _linear_algebra(organo, sup_param, no_scale)
+        system_sol = _linear_algebra(organo, sup_param, no_scale, mult=mult)
     if sup_param == 'pressions':
         dic_res = {'tensions': system_sol[:int(organo.Ne*0.75)],
                    'pressions': system_sol[int(organo.Ne*0.75):]}
@@ -322,26 +331,26 @@ def infer_forces(organo, method='MP', init_method='simple',
 if __name__ == "__main__":
     NF = 3
     ORGANO = generate_ring(NF, 1, 2)
+    NF = ORGANO.Nf
     geom.update_all(ORGANO)
-    ALPHA = 1 + 1/(20*(ORGANO.settings['R_out']-ORGANO.settings['R_in']))
-    np.random.seed(1553)
-    # Model parameters or specifications
-    SPECS = {
+    alpha = 1 + 1/(20*(ORGANO.settings['R_out']-ORGANO.settings['R_in']))
+
+    specs = {
         'face': {
             'is_alive': 1,
-            'prefered_area':  list(ALPHA*ORGANO.face_df.area.values),
+            'prefered_area':  alpha*ORGANO.face_df.area,
             'area_elasticity': 1., },
         'edge': {
             'ux': 0.,
             'uy': 0.,
             'uz': 0.,
-            'line_tension': 0.1,
+            'line_tension': 0.001,
             'is_active': 1
             },
         'vert': {
             'adhesion_strength': 0.,
             'x_ecm': 0.,
-            'y_ecm': 0.,
+            'y_ecm': 0.,_coef_matrix(ORGANO, 'areas')
             'is_active': 1
             },
         'settings': {
@@ -351,20 +360,24 @@ if __name__ == "__main__":
             }
         }
 
-    ORGANO.update_specs(SPECS, reset=True)
+    ORGANO.update_specs(specs, reset=True)
+    ORGANO.edge_df.loc[:NF, 'line_tension'] *= 2
+    ORGANO.edge_df.loc[NF:2*NF-1, 'line_tension'] = 0
     ORGANO.vert_df.loc[:, 'x'] = (ORGANO.vert_df.x.copy() * np.cos(np.pi/12) -
                                   ORGANO.vert_df.y.copy() * np.sin(np.pi/12))
     ORGANO.vert_df.loc[:, 'y'] = (ORGANO.vert_df.x.copy() * np.sin(np.pi/12) +
                                   ORGANO.vert_df.y.copy() * np.cos(np.pi/12))
-
+    normalize_scale(ORGANO, geom, refer='edges')
     geom.update_all(ORGANO)
+    Solver.find_energy_min(ORGANO, geom, model)
 
     # SYMETRIC_TENSIONS = np.multiply(set_init_point(ORGANO.settings['R_in'],
     #                                                ORGANO.settings['R_out'],
     #                                                ORGANO.Nf, ALPHA),
     #                                 np.random.normal(1, 0.002,
     #                                                  int(ORGANO.Ne*0.75)))
-    # SIN_MUL = 1+(np.sin(np.linspace(0, 2*np.pi, ORGANO.Nf, endpoint=False)))**2
+    # SIN_MUL = 1+(np.sin(np.linspace(0, 2*np.pi, ORGANO.Nf,
+    #                                 endpoint=False)))**2
     # ORGANO.face_df.prefered_area *= np.random.normal(1.0, 0.05, ORGANO.Nf)
     # ORGANO.edge_df.line_tension = prepare_tensions(ORGANO, SYMETRIC_TENSIONS)
     # ORGANO.edge_df.loc[:ORGANO.Nf-1, 'line_tension'] *= SIN_MUL
@@ -375,26 +388,37 @@ if __name__ == "__main__":
     # NEW_TENSIONS = ORGANO.edge_df.line_tension
     #
     # ORGANO.edge_df.loc[:, 'line_tension'] = NEW_TENSIONS
-
-    RES = Solver.find_energy_min(ORGANO, geom, model)
-    COEFS = _coef_matrix(ORGANO, '')
+    print('Ideal scale factor: ',
+          np.sum(ORGANO.edge_df.line_tension[:3*ORGANO.Nf]))
+    # RES = Solver.find_energy_min(ORGANO, geom, model)
+    COEFS = _coef_matrix(ORGANO, 'areas')_coef_matrix(ORGANO, 'areas')
     CONSTANT = _right_side(ORGANO, COEFS)
     DF_COEFS = pd.DataFrame(COEFS)
-    import matplotlib.pyplot as plt
-    for i in COEFS:
-        print(i)
-    print(ORGANO.vert_df)
-    print(ORGANO.edge_df)
+    # print(ORGANO.vert_df)
+    # print(ORGANO.edge_df)
     # DF_COEFS.to_csv('A_'+str(NF)+'cells.csv', index=False)
     DF_CONSTANT = pd.DataFrame(CONSTANT)
     # DF_CONSTANT.to_csv('b_'+str(NF)+'cells.csv', index=False)
     # RES_INFERENCE = _linear_model(ORGANO, 'areas')
     # RES_INFERENCE = _qp_model(ORGANO, 'simple', True, 0)
-    RES_INFERENCE = infer_forces(ORGANO, method='NNLS',
+    RES_INFERENCE = infer_forces(ORGANO, method='LINALG',
                                  sup_param='areas', no_scale=False)
-    print('Mean tension :', RES_INFERENCE['tensions'].mean())
-    TO_VECT_RES = RES_INFERENCE['tensions']
-    TO_VECT_RES = np.array(RES_INFERENCE['tensions'])
+    TO_VECT_RES = np.hstack((RES_INFERENCE['tensions'],
+                             RES_INFERENCE['areas']))
+    print(ORGANO.vert_df.loc[:, ('x', 'y')])
+    print(ORGANO.edge_df.loc[:, ('srce', 'trgt', 'length')])
+    REAL_PARAM = np.concatenate((ORGANO.edge_df.line_tension[:3*ORGANO.Nf],
+                                 ORGANO.face_df.area -
+                                 ORGANO.face_df.prefered_area,
+                                 [ORGANO.settings['lumen_volume'] -
+                                  ORGANO.settings['lumen_prefered_vol']]))
+    print('A :\n', COEFS)
+    print('b :', CONSTANT)
+    print('t :', REAL_PARAM)
+    print('Ax*-b: ', np.dot(COEFS, TO_VECT_RES)-CONSTANT)
+    print('||Ax*-b||: ', np.linalg.norm(np.dot(COEFS, TO_VECT_RES) -
+                                        CONSTANT))
+    print('At-b: ', np.dot(COEFS, REAL_PARAM) - CONSTANT)
     print(RES_INFERENCE)
-    DF_RES_INFERENCE = pd.DataFrame(TO_VECT_RES)
+    # DF_RES_INFERENCE = pd.DataFrame(TO_VECT_RES)
     # DF_RES_INFERENCE.to_csv('x*_'+str(NF)+'nnls_cells.csv')
