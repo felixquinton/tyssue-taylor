@@ -6,6 +6,7 @@ from tyssue import PlanarGeometry
 from tyssue.dynamics import effectors, units
 from tyssue.generation import generate_ring
 from tyssue.dynamics.factory import model_factory
+from tyssue_taylor.segmentation.segment2D import normalize_scale
 
 
 def mesh_from_data(centers, inner_contour, outer_contour):
@@ -33,23 +34,23 @@ def mesh_from_data(centers, inner_contour, outer_contour):
 
     AnnularGeometry.update_all(organo)
     specs = {
-        'face':{
+        'face': {
             'is_alive': 1,
-            'prefered_area': organo.face_df.area.mean(), #and there was an error here
-            'area_elasticity': 1,},
-        'edge':{
+            'prefered_area': organo.face_df.area.mean(),
+            'area_elasticity': 1, },
+        'edge': {
             'ux': 0.,
             'uy': 0.,
             'fx': 0.,
             'fy': 0.,
-            'sx': 0., # source and target coordinates
+            'sx': 0.,  # source and target coordinates
             'sy': 0.,
             'tx': 0.,
             'ty': 0.,
-			'line_tension': 1e-3,
+            'line_tension': 1e-3,
             'is_active': 1
             },
-        'vert':{
+        'vert': {
             'is_active': 1
             },
         'settings': {
@@ -60,7 +61,6 @@ def mesh_from_data(centers, inner_contour, outer_contour):
         }
     organo.update_specs(specs, reset=True)
     return organo
-
 
 
 def find_closer_angle(theta0, theta1):
@@ -91,10 +91,11 @@ def find_closer_angle(theta0, theta1):
     tt0, tt1 = np.meshgrid(theta0, theta1)
     dtheta = tt0 - tt1
     # periodic boundary
-    dtheta[dtheta >   np.pi] -= 2*np.pi
+    dtheta[dtheta > np.pi] -= 2*np.pi
     dtheta[dtheta <= -np.pi] += 2*np.pi
 
     return (dtheta**2).argmin(axis=0)
+
 
 def get_bissecting_vertices(centers, inner_contour, outer_contour):
     '''Docstring left as an exercice
@@ -117,7 +118,6 @@ def get_bissecting_vertices(centers, inner_contour, outer_contour):
     return inner_vs, outer_vs
 
 
-
 # The following classes will probably be included in tyssue at some point
 class AnnularGeometry(PlanarGeometry):
     """
@@ -129,8 +129,10 @@ class AnnularGeometry(PlanarGeometry):
 
     @staticmethod
     def update_lumen_volume(eptm):
-        srce_pos = eptm.upcast_srce(eptm.vert_df[['x', 'y']]).loc[eptm.apical_edges]
-        trgt_pos = eptm.upcast_trgt(eptm.vert_df[['x', 'y']]).loc[eptm.apical_edges]
+        srce_pos = eptm.upcast_srce(
+            eptm.vert_df[['x', 'y']]).loc[eptm.apical_edges]
+        trgt_pos = eptm.upcast_trgt(
+            eptm.vert_df[['x', 'y']]).loc[eptm.apical_edges]
         apical_edge_pos = (srce_pos + trgt_pos)/2
         apical_edge_coords = eptm.edge_df.loc[eptm.apical_edges,
                                               ['dx', 'dy']]
@@ -151,8 +153,8 @@ class BasalAdhesion(effectors.AbstractEffector):
 
     specs = {
         'vert': {
-            'adhesion_strength', # put to zero where relevant
-            'x_ecm', 'y_ecm', # To be set at initialisation
+            'adhesion_strength',  # put to zero where relevant
+            'x_ecm', 'y_ecm',  # To be set at initialisation
             'x', 'y',
             }
         }
@@ -170,7 +172,6 @@ class BasalAdhesion(effectors.AbstractEffector):
         grad_y = eptm.vert_df.eval('adhesion_strength * (y - y_ecm)')
         grad = pd.DataFrame({'gx': grad_x, 'gy': grad_y})
         return grad, None
-
 
 
 class LumenElasticity(effectors.AbstractEffector):
@@ -198,7 +199,7 @@ class LumenElasticity(effectors.AbstractEffector):
         Ky = eptm.settings['lumen_elasticity']
         V0 = eptm.settings['lumen_prefered_vol']
         Vy = eptm.settings['lumen_volume']
-        return np.array([Ky * (Vy - V0)**2 / 2,])
+        return np.array([Ky * (Vy - V0)**2 / 2, ])
 
     @staticmethod
     def gradient(eptm):
@@ -224,6 +225,65 @@ def lumen_area_grad(eptm):
     grad_trgt['gy'] = srce_pos['x']
     # minus sign due to the backward orientation
     return -grad_srce, -grad_trgt
+
+
+def create_organo(nb_cells, r_in, r_out, seed=None, rot=None):
+    geom = AnnularGeometry
+    organo = generate_ring(nb_cells, r_in, r_out)
+    Nf = organo.Nf
+    geom.update_all(organo)
+    alpha = 1 + 1/(20*(organo.settings['R_out']-organo.settings['R_in']))
+    specs = {
+        'face': {
+            'is_alive': 1,
+            'prefered_area':  alpha*organo.face_df.area,
+            'area_elasticity': 1., },
+        'edge': {
+            'ux': 0.,
+            'uy': 0.,
+            'uz': 0.,
+            'line_tension': 0.001,
+            'is_active': 1
+            },
+        'vert': {
+            'adhesion_strength': 0.,
+            'x_ecm': 0.,
+            'y_ecm': 0.,
+            'is_active': 1
+            },
+        'settings': {
+            'lumen_elasticity': 0.1,
+            'lumen_prefered_vol': organo.settings['lumen_volume'],
+            'lumen_volume': organo.settings['lumen_volume']
+            }
+        }
+    organo.update_specs(specs, reset=True)
+    normalize_scale(organo, geom, refer='edges')
+    geom.update_all(organo)
+    if seed is not None:
+        symetric_tensions = (10*set_init_point(organo.settings['R_in'],
+                                               organo.settings['R_out'],
+                                               organo.Nf, alpha))
+        sin_mul = 1+(np.sin(np.linspace(0, 2*np.pi, organo.Nf,
+                                        endpoint=False)))**2
+        organo.face_df.prefered_area *= np.random.normal(1.0, 0.05, organo.Nf)
+        organo.edge_df.line_tension = prepare_tensions(organo,
+                                                       symetric_tensions)
+        organo.edge_df.loc[:Nf-1, 'line_tension'] *= sin_mul*np.random.normal(
+            1.0, 0.05, organo.Nf)
+        geom.update_all(organo)
+    if rot is not None:
+        organo.vert_df.loc[:, 'x'] = (organo.vert_df.x.copy() * np.cos(rot) -
+                                      organo.vert_df.y.copy() * np.sin(rot))
+        organo.vert_df.loc[:, 'y'] = (organo.vert_df.x.copy() * np.sin(rot) +
+                                      organo.vert_df.y.copy() * np.cos(rot))
+        geom.update_all(organo)
+    organo.vert_df[['x_ecm', 'y_ecm']] = organo.vert_df[['x', 'y']]
+    organo.vert_df.loc[organo.basal_verts, 'adhesion_strength'] = 0.01
+    new_tensions = organo.edge_df.line_tension
+    organo.edge_df.loc[:, 'line_tension'] = new_tensions
+    return organo
+
 
 model = model_factory([effectors.FaceAreaElasticity,
                        effectors.LineTension,

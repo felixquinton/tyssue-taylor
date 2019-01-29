@@ -539,7 +539,7 @@ def _scan_scale_factor(organo, tensions_array,
     step_size = start_ss
     while step_size >= end_ss:
         facts = np.arange(lb, ub, step_size)
-        dists = np.zeros(int((ub-lb)/step_size))
+        dists = np.zeros(facts.shape)
         for ind, fact in enumerate(facts):
             if verbose > 0:
                 nfev += 1
@@ -551,8 +551,8 @@ def _scan_scale_factor(organo, tensions_array,
             dists[ind] = np.sum(np.linalg.norm(_distance(tmp_eptm,
                                                          organo), axis=1))
         approx_argmin = np.argmin(dists)
-        lb = max(0, lb + facts[approx_argmin] - 0.5*step_size)
-        ub = lb + facts[approx_argmin] + 0.5*step_size
+        lb = max(0, facts[approx_argmin] - 0.5*step_size)
+        ub = facts[approx_argmin] + 0.5*step_size
         step_size /= 10
         if verbose > 0:
             nb_iter += 1

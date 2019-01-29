@@ -8,7 +8,6 @@ import time
 import json
 import os
 import argparse
-#import shutil
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -26,6 +25,7 @@ from tyssue_taylor.adjusters.adjust_annular import (prepare_tensions,
 from tyssue_taylor.models.annular import AnnularGeometry as geom
 from tyssue_taylor.models.annular import model
 from tyssue_taylor import version
+
 
 def print_tensions(exp_organo, th_organo, to_save=False, path=None):
     """Print the tensions of an experimental organoid and the theoritical
@@ -78,11 +78,12 @@ def get_normal_from_seed(seed, mu, theta, shape):
       shape of the output vector
     Returns
     ----------
-    A pseudo random vector from the normal distribution of given parameters, wrt
-    to the given random seed.
+    A pseudo random vector from the normal distribution of given parameters,
+    wrt to the given random seed.
     """
     np.random.seed(seed)
     return np.random.normal(mu, theta, shape)
+
 
 def replicate_organo_from_file(path_hdf5, path_json, thet):
     """Read and hdf5 file and a json file to create the theoritical and
@@ -101,14 +102,13 @@ def replicate_organo_from_file(path_hdf5, path_json, thet):
     th_organo : class AnnularSheet
       the theoritical organoid from the files.
     exp_organo : class AnnularSheet
-      the experimental organoid created with the random seed from the json file.
+      the experimental organoid created with the random seed from the json
+      file.
     """
     dsets = load_datasets(path_hdf5)
     th_organo = AnnularSheet('theoritical', dsets)
     with open(path_json, 'r') as file:
         dic = json.load(file)
-        #seed = dic['seed']
-        #theta = dic['theta']
         del dic['seed']
         del dic['theta']
         specs = dic
@@ -116,11 +116,12 @@ def replicate_organo_from_file(path_hdf5, path_json, thet):
     th_organo.settings['R_out'] = 2.713190230360456
     th_organo.update_specs(specs, reset=False)
     exp_organo = th_organo.copy()
-    random_sequence = np.random.normal(1, thet,
-                                       exp_organo.vert_df.loc[:, exp_organo.coords].values.shape)
+    random_sequence = np.random.normal(
+        1, thet, exp_organo.vert_df.loc[:, exp_organo.coords].values.shape)
     exp_organo.vert_df.loc[:, exp_organo.coords] *= random_sequence
     geom.update_all(exp_organo)
     return th_organo, exp_organo
+
 
 def save_optimization_results(exp_organo, th_organo, opt_res, main_opt_options,
                               energy_opt_options, is_reg, is_lumen, dir_path,
@@ -136,8 +137,8 @@ def save_optimization_results(exp_organo, th_organo, opt_res, main_opt_options,
       all fields from scipy OptimizeResults or pyOpt res except for jac, grad,
       active_mask (if applicable)
       res_time : the solving time of the optimization process
-      tension_error : the element wise error between thpipeline_test_theoritical_organo.hdf5
-                      true tension vector
+      tension_error : the element wise error between
+        thpipeline_test_theoritical_organo.hdf5 true tension vector
       and the optimization result
       git_revision : the git version of the source code used for the
       optimization
@@ -162,7 +163,7 @@ def save_optimization_results(exp_organo, th_organo, opt_res, main_opt_options,
         reg_txt = 'r'
     if is_lumen:
         lum_txt = 'l'
-    local_path = dir_path+'/simulation/'+main_opt_options['method']+\
+    local_path = dir_path+'/simulation/'+main_opt_options['method'] + \
                  '_'+reg_txt+'_'+lum_txt
     os.makedirs(local_path, exist_ok=True)
 
@@ -184,7 +185,7 @@ def save_optimization_results(exp_organo, th_organo, opt_res, main_opt_options,
         json.dump(opt_res, outfile)
     with open(local_path+'/exp_organo_main_opt_options.json', 'w+') as outfile:
         json.dump(main_opt_options, outfile)
-    if not initial_opt_options is None:
+    if initial_opt_options is not None:
         initial_opt_options['bounds'] = list(initial_opt_options.get('bounds',
                                                                      None))
         if not initial_opt_options.get('verbose', None) is None:
@@ -197,9 +198,8 @@ def save_optimization_results(exp_organo, th_organo, opt_res, main_opt_options,
         json.dump(energy_opt_options, outfile)
     print_tensions(exp_organo, th_organo, True,
                    local_path+'/exp_organo'+str(seed)+'.png')
-    #shutil.make_archive(local_path+'/exp_res'+str(seed), format='zip',
-    #                    base_dir=local_path)
-
+    # shutil.make_archive(local_path+'/exp_res'+str(seed), format='zip',
+    #                     base_dir=local_path)
 
 
 def run_nr_nl_optimization(organo, noisy, thet, energy_min, main_min,
@@ -233,11 +233,11 @@ def run_nr_nl_optimization(organo, noisy, thet, energy_min, main_min,
     alpha = 1 + 1/(20*(organo.settings['R_out']-organo.settings['R_in']))
     true_tensions = organo.edge_df.line_tension[:3*organo.Nf].values
     print(true_tensions)
-    #initial_guess = true_tensions * np.random.normal(1, thet,
-    #                                                 true_tensions.shape)
+    #  initial_guess = true_tensions * np.random.normal(1, thet,
+    #                                                   true_tensions.shape)
     initial_guess = true_tensions
     start = time.clock()
-    res = adjust_tensions(noisy, initial_guess, {'dic':{}, 'weight':0},
+    res = adjust_tensions(noisy, initial_guess, {'dic': {}, 'weight': 0},
                           energy_min, initial_min, **main_min)
     print(true_tensions)
     if main_min['method'] == 'PSQP':
@@ -248,7 +248,8 @@ def run_nr_nl_optimization(organo, noisy, thet, energy_min, main_min,
     Solver.find_energy_min(noisy, geom, model)
     res_time = time.clock()-start
     tension_error = np.divide(true_tensions-res_x,
-                              np.full(true_tensions.shape, np.mean(true_tensions)))
+                              np.full(true_tensions.shape,
+                                      np.mean(true_tensions)))
     opt_res = res
     opt_res['res_time'] = res_time
     opt_res['tension_error'] = list(tension_error)
@@ -256,10 +257,11 @@ def run_nr_nl_optimization(organo, noisy, thet, energy_min, main_min,
     var_tens = np.divide(np.abs(true_tensions-res_x),
                          np.full(true_tensions.shape, np.mean(true_tensions)))
 
-    #(slope, intercept, r_value, p_value, std_err)
+    # (slope, intercept, r_value, p_value, std_err)
     opt_res['linregress'] = list(stats.linregress(true_tensions, var_tens))
 
     return noisy, opt_res
+
 
 def run_nr_l_optimization(organo, noisy, energy_min, main_min,
                           initial_min=None):
@@ -297,7 +299,7 @@ def run_nr_l_optimization(organo, noisy, energy_min, main_min,
     initial_guess = np.concatenate((initial_guess,
                                     [organo.settings['lumen_volume']]))
     start = time.clock()
-    if not initial_min is None:
+    if initial_min is not None:
         if len(initial_min['bounds']) <= len(initial_guess):
             initial_min['bounds'][0].append(-1e-8)
             initial_min['bounds'][1].append(1e6)
@@ -305,7 +307,7 @@ def run_nr_l_optimization(organo, noisy, energy_min, main_min,
         if len(main_min['bounds']) <= len(initial_guess):
             main_min['bounds'][0].append(-1e-8)
             main_min['bounds'][1].append(1e6)
-    res = adjust_tensions(noisy, initial_guess, {'dic':{}, 'weight':0},
+    res = adjust_tensions(noisy, initial_guess, {'dic': {}, 'weight': 0},
                           energy_min, initial_min, **main_min)
     if main_min['method'] == 'PSQP':
         res_x = res['x']
@@ -323,7 +325,7 @@ def run_nr_l_optimization(organo, noisy, energy_min, main_min,
     var_tens = np.divide(np.abs(true_tensions-res_x),
                          np.full(true_tensions.shape, np.mean(true_tensions)))
 
-    #(slope, intercept, r_value, p_value, std_err)
+    # (slope, intercept, r_value, p_value, std_err)
     opt_res['linregress'] = list(stats.linregress(true_tensions, var_tens))
     return noisy, opt_res
 
@@ -363,7 +365,8 @@ def run_r_nl_optimization(organo, noisy, energy_min, main_min,
                                    alpha)
     start = time.clock()
     res = adjust_tensions(noisy, initial_guess,
-                          {'dic':{'basal': True, 'apical': True}, 'weight':0.001},
+                          {'dic': {'basal': True, 'apical': True},
+                           'weight': 0.001},
                           energy_min, initial_min, **main_min)
     if main_min['method'] == 'PSQP':
         res_x = res['x']
@@ -381,11 +384,10 @@ def run_r_nl_optimization(organo, noisy, energy_min, main_min,
     var_tens = np.divide(np.abs(true_tensions-res_x),
                          np.full(true_tensions.shape, np.mean(true_tensions)))
 
-    #(slope, intercept, r_value, p_value, std_err)
+    # (slope, intercept, r_value, p_value, std_err)
     opt_res['linregress'] = list(stats.linregress(true_tensions, var_tens))
 
     return noisy, opt_res
-
 
 
 def run_r_l_optimization(organo, noisy, energy_min, main_min,
@@ -424,7 +426,7 @@ def run_r_l_optimization(organo, noisy, energy_min, main_min,
                                    alpha)
     initial_guess = np.concatenate((initial_guess,
                                     [organo.settings['lumen_volume']]))
-    if not initial_min is None:
+    if initial_min is not None:
         if len(initial_min['bounds']) <= len(initial_guess):
             initial_min['bounds'][0].append(-1e-8)
             initial_min['bounds'][1].append(1e6)
@@ -434,7 +436,8 @@ def run_r_l_optimization(organo, noisy, energy_min, main_min,
             main_min['bounds'][1].append(1e6)
     start = time.clock()
     res = adjust_tensions(noisy, initial_guess,
-                          {'dic':{'basal': True, 'apical': True}, 'weight':0.001},
+                          {'dic': {'basal': True, 'apical': True},
+                           'weight': 0.001},
                           energy_min, initial_min, **main_min)
     if main_min['method'] == 'PSQP':
         res_x = res['x']
@@ -452,10 +455,11 @@ def run_r_l_optimization(organo, noisy, energy_min, main_min,
     var_tens = np.divide(np.abs(true_tensions-res_x),
                          np.full(true_tensions.shape, np.mean(true_tensions)))
 
-    #(slope, intercept, r_value, p_value, std_err)
+    # (slope, intercept, r_value, p_value, std_err)
     opt_res['linregress'] = list(stats.linregress(true_tensions, var_tens))
 
     return noisy, opt_res
+
 
 if __name__ == '__main__':
 
@@ -488,7 +492,8 @@ if __name__ == '__main__':
 
     for theta in np.linspace(0, 0.1, 11):
         for SEED in LIST_SEED[:ARGS['nb_rep']]:
-            print('Solving for random seed '+str(SEED)+' and theta '+str(theta)+'.')
+            print('Solving for random seed '+str(SEED) +
+                  ' and theta '+str(theta)+'.')
             PATH_HFD5 = ASSET_PATH+'/assets/benchmark_instances/pipeline_test_'+\
                                    'theoritical_organo'+str(SEED)+'.hdf5'
             PATH_JSON = ASSET_PATH+'/assets/benchmark_instances/pipeline_test_'+\
@@ -510,7 +515,8 @@ if __name__ == '__main__':
                       'r') as inputfile:
                 LM_MIN = json.load(inputfile)
             if ARGS['lm']+ARGS['bfgs']+ARGS['trf'] > 1:
-                raise ValueError('Only one method allowed among TRF, BFGS and LM.')
+                raise ValueError(
+                    'Only one method allowed among TRF, BFGS and LM.')
             MAIN_MIN = TRF_MIN
             INIT_MIN = None
             if ARGS['psqp'] or ARGS['dist_psqp']:
@@ -544,5 +550,6 @@ if __name__ == '__main__':
                     N, O_R = run_nr_nl_optimization(TH, EXP, theta, ENER_MIN,
                                                     MAIN_MIN, INIT_MIN)
             SAVE_PATH = ASSET_PATH + '_serror_' + str(theta)
-            save_optimization_results(N, TH, O_R, MAIN_MIN, ENER_MIN, ARGS['reg'],
-                                      ARGS['lumen'], SAVE_PATH, SEED, INIT_MIN)
+            save_optimization_results(N, TH, O_R, MAIN_MIN, ENER_MIN,
+                                      ARGS['reg'], ARGS['lumen'], SAVE_PATH,
+                                      SEED, INIT_MIN)
