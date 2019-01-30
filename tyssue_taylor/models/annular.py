@@ -9,11 +9,64 @@ from tyssue.dynamics.factory import model_factory
 from tyssue_taylor.segmentation.segment2D import normalize_scale
 
 
+def prepare_tensions(organo, tension_array):
+    """Match the tension in a reduced array to an organo dataset
+
+    Parameters
+    ----------
+    organo : :class:`Epithelium` object
+    tension_array : vector of initial line tensions (size 3*Nf)
+
+    Return
+    ----------
+    tensions : np.ndarray of size 4*Nf
+    the tensions array properly organised to fit into an organo dataset
+    """
+    tensions = organo.edge_df.line_tension.values
+    # apical and basal edges
+    tensions[:2*organo.Nf] = tension_array[:2*organo.Nf]
+
+    tensions[2*organo.Nf:3*organo.Nf] = tension_array[2*organo.Nf:3*organo.Nf]
+    tensions[3*organo.Nf:4*organo.Nf] = np.roll(
+        tension_array[2*organo.Nf:3*organo.Nf], -1)
+    return tensions
+
+
+def set_init_point(r_in, r_out, nb_cells, alpha):
+    """Define the initial point as proposed in the doc (in french)
+    https://www.sharelatex.com/read/zdxptpnrryhc
+
+    Parameters
+    ----------
+    r_in : float, the radius of the apical ring
+    r_out : float, the radius of the basal ring
+    Nf : int, the number of cells in the mesh
+    alpha : float, the multiplicative coefficient between the mean area
+      of the cells and the mean prefered area of the cells, i.e
+      organo.face_df.prefered_area.mean() = alpha * organo.face_df.area.mean()
+
+    Return
+    ----------
+    initial_point : np.ndarray of size 3*Nf
+    the initial point for the optimization problems, according to the doc.
+    """
+    initial_point = np.zeros(3*nb_cells)
+    area = (r_out**2-r_in**2)/2*np.sin(2*np.pi/nb_cells)
+    initial_point[:nb_cells] = np.full(nb_cells,
+                                       2*np.cos(np.pi/nb_cells) *
+                                       area*(alpha-1)*(r_out-r_in))
+    initial_point[2*nb_cells:] = np.full(nb_cells,
+                                         np.sin(2*np.pi/nb_cells)/2 *
+                                         area*(alpha-1)*r_out)
+    return initial_point
+
+
 def mesh_from_data(centers, inner_contour, outer_contour):
     """Creates an annular organoid from image data
     """
 
     Nf = centers.shape[0]
+    print(tmp_eptm.datasets[elem][columns], values)
 
     # Organize centers clockwize
     origin = centers.mean(axis=1)
@@ -261,9 +314,9 @@ def create_organo(nb_cells, r_in, r_out, seed=None, rot=None):
     normalize_scale(organo, geom, refer='edges')
     geom.update_all(organo)
     if seed is not None:
-        symetric_tensions = (10*set_init_point(organo.settings['R_in'],
-                                               organo.settings['R_out'],
-                                               organo.Nf, alpha))
+        symetric_tensions = set_init_point(organo.settings['R_in'],
+                                           organo.settings['R_out'],
+                                           organo.Nf, alpha)
         sin_mul = 1+(np.sin(np.linspace(0, 2*np.pi, organo.Nf,
                                         endpoint=False)))**2
         organo.face_df.prefered_area *= np.random.normal(1.0, 0.05, organo.Nf)
