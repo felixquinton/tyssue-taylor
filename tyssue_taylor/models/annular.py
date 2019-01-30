@@ -9,58 +9,6 @@ from tyssue.dynamics.factory import model_factory
 from tyssue_taylor.segmentation.segment2D import normalize_scale
 
 
-def prepare_tensions(organo, tension_array):
-    """Match the tension in a reduced array to an organo dataset
-
-    Parameters
-    ----------
-    organo : :class:`Epithelium` object
-    tension_array : vector of initial line tensions (size 3*Nf)
-
-    Return
-    ----------
-    tensions : np.ndarray of size 4*Nf
-    the tensions array properly organised to fit into an organo dataset
-    """
-    tensions = organo.edge_df.line_tension.values
-    # apical and basal edges
-    tensions[:2*organo.Nf] = tension_array[:2*organo.Nf]
-
-    tensions[2*organo.Nf:3*organo.Nf] = tension_array[2*organo.Nf:3*organo.Nf]
-    tensions[3*organo.Nf:4*organo.Nf] = np.roll(
-        tension_array[2*organo.Nf:3*organo.Nf], -1)
-    return tensions
-
-
-def set_init_point(r_in, r_out, nb_cells, alpha):
-    """Define the initial point as proposed in the doc (in french)
-    https://www.sharelatex.com/read/zdxptpnrryhc
-
-    Parameters
-    ----------
-    r_in : float, the radius of the apical ring
-    r_out : float, the radius of the basal ring
-    Nf : int, the number of cells in the mesh
-    alpha : float, the multiplicative coefficient between the mean area
-      of the cells and the mean prefered area of the cells, i.e
-      organo.face_df.prefered_area.mean() = alpha * organo.face_df.area.mean()
-
-    Return
-    ----------
-    initial_point : np.ndarray of size 3*Nf
-    the initial point for the optimization problems, according to the doc.
-    """
-    initial_point = np.zeros(3*nb_cells)
-    area = (r_out**2-r_in**2)/2*np.sin(2*np.pi/nb_cells)
-    initial_point[:nb_cells] = np.full(nb_cells,
-                                       2*np.cos(np.pi/nb_cells) *
-                                       area*(alpha-1)*(r_out-r_in))
-    initial_point[2*nb_cells:] = np.full(nb_cells,
-                                         np.sin(2*np.pi/nb_cells)/2 *
-                                         area*(alpha-1)*r_out)
-    return initial_point
-
-
 def mesh_from_data(centers, inner_contour, outer_contour):
     """Creates an annular organoid from image data
     """
@@ -278,64 +226,6 @@ def lumen_area_grad(eptm):
     grad_trgt['gy'] = srce_pos['x']
     # minus sign due to the backward orientation
     return -grad_srce, -grad_trgt
-
-
-def create_organo(nb_cells, r_in, r_out, seed=None, rot=None):
-    geom = AnnularGeometry
-    organo = generate_ring(nb_cells, r_in, r_out)
-    Nf = organo.Nf
-    geom.update_all(organo)
-    alpha = 1 + 1/(20*(organo.settings['R_out']-organo.settings['R_in']))
-    specs = {
-        'face': {
-            'is_alive': 1,
-            'prefered_area':  alpha*organo.face_df.area,
-            'area_elasticity': 1., },
-        'edge': {
-            'ux': 0.,
-            'uy': 0.,
-            'uz': 0.,
-            'line_tension': 0.001,
-            'is_active': 1
-            },
-        'vert': {
-            'adhesion_strength': 0.,
-            'x_ecm': 0.,
-            'y_ecm': 0.,
-            'is_active': 1
-            },
-        'settings': {
-            'lumen_elasticity': 0.1,
-            'lumen_prefered_vol': organo.settings['lumen_volume'],
-            'lumen_volume': organo.settings['lumen_volume']
-            }
-        }
-    organo.update_specs(specs, reset=True)
-    normalize_scale(organo, geom, refer='edges')
-    geom.update_all(organo)
-    if seed is not None:
-        symetric_tensions = set_init_point(organo.settings['R_in'],
-                                           organo.settings['R_out'],
-                                           organo.Nf, alpha)
-        sin_mul = 1+(np.sin(np.linspace(0, 2*np.pi, organo.Nf,
-                                        endpoint=False)))**2
-        organo.face_df.prefered_area *= np.random.normal(1.0, 0.05, organo.Nf)
-        organo.edge_df.line_tension = prepare_tensions(organo,
-                                                       symetric_tensions)
-        organo.edge_df.loc[:Nf-1, 'line_tension'] *= sin_mul*np.random.normal(
-            1.0, 0.05, organo.Nf)
-        geom.update_all(organo)
-    if rot is not None:
-        organo.vert_df.loc[:, 'x'] = (organo.vert_df.x.copy() * np.cos(rot) -
-                                      organo.vert_df.y.copy() * np.sin(rot))
-        organo.vert_df.loc[:, 'y'] = (organo.vert_df.x.copy() * np.sin(rot) +
-                                      organo.vert_df.y.copy() * np.cos(rot))
-        geom.update_all(organo)
-    organo.vert_df[['x_ecm', 'y_ecm']] = organo.vert_df[['x', 'y']]
-    organo.vert_df.loc[organo.basal_verts, 'adhesion_strength'] = 0.01
-    new_tensions = organo.edge_df.line_tension
-    organo.edge_df.loc[:, 'line_tension'] = new_tensions
-    return organo
 
 
 model = model_factory([effectors.FaceAreaElasticity,

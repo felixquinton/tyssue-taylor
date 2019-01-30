@@ -44,12 +44,14 @@ from scipy.optimize import nnls
 from tyssue.dynamics.planar_gradients import area_grad
 from tyssue.solvers.sheet_vertex_solver import Solver
 from tyssue_taylor.models.annular import AnnularGeometry as geom
-from tyssue_taylor.models.annular import model, lumen_area_grad, create_organo
+from tyssue_taylor.models.annular import model, lumen_area_grad
+from tyssue_taylor.models.display import create_organo
 from tyssue_taylor.adjusters.adjust_annular import (set_init_point,
                                                     prepare_tensions)
 
 
 def _coef_matrix(organo, sup_param='', no_scale=False):
+    organo.get_extra_indices()
     u_ij = organo.edge_df.eval('dx / length')
     v_ij = organo.edge_df.eval('dy / length')
     uv_ij = np.concatenate((u_ij, v_ij))
@@ -69,6 +71,8 @@ def _coef_matrix(organo, sup_param='', no_scale=False):
 
     coef_srce = sparse.coo_matrix((uv_ij, (srce_rows, cols)),
                                   shape=coef_shape)
+    # Inversing the coefs for trgt edges so that the force is applied away from
+    # the vertex.
     coef_trgt = sparse.coo_matrix((-uv_ij, (trgt_rows, cols)),
                                   shape=coef_shape)
     # Ones every where on the last line
@@ -85,7 +89,7 @@ def _coef_matrix(organo, sup_param='', no_scale=False):
     # the single edges. An index over only one half-edge per edge
     # can be obtained with:
 
-    coef = coef[:, 0:organo.Nf*3].toarray()
+    coef = coef[:, organo.sgle_edges].toarray()
     if sup_param == 'areas':
         coef = np.c_[coef, _areas_coefs(organo, no_scale)]
     elif sup_param == 'pressions':
@@ -170,7 +174,7 @@ def _right_side(organo, coefs):
     res = np.zeros(coefs.shape[0])
     res[-1] = (organo.edge_df.line_tension.mean() /
                (organo.face_df.area_elasticity.mean() *
-                organo.face_df.prefered_area.mean()**1.5))  # organo.Ne*3/4
+                organo.face_df.prefered_area.mean()**1.5))
     return res
 
 
@@ -248,6 +252,8 @@ def infer_forces(organo, method='MP', init_method='simple',
 
 def _print_solving_results(organo, fi_res, coefs, constant,
                            sup_param=None):
+    """Used to print the results when the module is run from the console.
+    """
     print('Ideal scale factor: ',
           np.sum(ORGANO.edge_df.line_tension[:3*ORGANO.Nf]))
     print('A :\n', coefs)

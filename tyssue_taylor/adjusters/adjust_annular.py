@@ -89,9 +89,8 @@ def adjust_parameters(eptm, initial_guess, regularization,
 def _new_opt_dist(var_table, organo, regularization, sum_obj, parameters,
                   iprint_file=None, **minimize_opt):
     tmp_organo = organo.copy()
-    # split_inds = np.cumsum([organo.datasets[elem][column].size
-    #                         for elem, column in parameters])
-    split_inds = np.array([12, 15])
+    split_inds = np.cumsum([organo.datasets[elem][column].size
+                            for elem, column in parameters])
     splitted_var = np.split(var_table, split_inds[:-1])
     variables = _prepare_params(tmp_organo, splitted_var, parameters)
     return distance_regularized(tmp_organo, organo, variables,
