@@ -27,7 +27,7 @@ def create_organo(nb_cells, r_in, r_out, seed=None, rot=None, geom=geom):
     specs = {
         'face': {
             'is_alive': 1,
-            'prefered_area':  alpha*organo.face_df.area,
+            'prefered_area': organo.face_df.area,
             'area_elasticity': 1., },
         'edge': {
             'ux': 0.,
@@ -43,7 +43,7 @@ def create_organo(nb_cells, r_in, r_out, seed=None, rot=None, geom=geom):
             'is_active': 1
             },
         'settings': {
-            'lumen_elasticity': 0.1,
+            'lumen_elasticity': 1.,
             'lumen_prefered_vol': organo.settings['lumen_volume'],
             'lumen_volume': organo.settings['lumen_volume']
             }
@@ -66,8 +66,14 @@ def create_organo(nb_cells, r_in, r_out, seed=None, rot=None, geom=geom):
     if rot is not None:
         organo.vert_df.loc[:, 'x'] = (organo.vert_df.x.copy() * np.cos(rot) -
                                       organo.vert_df.y.copy() * np.sin(rot))
+        print('rotated x',
+              organo.vert_df.x.copy() * np.cos(rot) -
+              organo.vert_df.y.copy() * np.sin(rot))
         organo.vert_df.loc[:, 'y'] = (organo.vert_df.x.copy() * np.sin(rot) +
                                       organo.vert_df.y.copy() * np.cos(rot))
+        print('rotated y',
+              organo.vert_df.x.copy() * np.sin(rot) +
+              organo.vert_df.y.copy() * np.cos(rot))
         geom.update_all(organo)
     organo.vert_df[['x_ecm', 'y_ecm']] = organo.vert_df[['x', 'y']]
     organo.vert_df.loc[organo.basal_verts, 'adhesion_strength'] = 0.01

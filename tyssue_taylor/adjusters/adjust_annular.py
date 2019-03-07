@@ -70,13 +70,11 @@ def adjust_parameters(eptm, initial_guess, regularization,
     """
     organo = eptm.copy()
     minimize_opt = config.solvers.minimize_spec()
-    print(main_min_opt)
     if energy_min_opt is not None:
         minimize_opt['minimize']['options'] = energy_min_opt.get(
             'options',
             minimize_opt['minimize']['options'])
     if main_min_opt['method'] in ('trf', 'lm'):
-        print("I know I do LM")
         return least_squares(_new_opt_dist, initial_guess, **main_min_opt,
                              args=(organo, regularization, False,
                                    parameters, iprint_file),
@@ -93,6 +91,29 @@ def _new_opt_dist(var_table, organo, regularization, sum_obj, parameters,
                             for elem, column in parameters])
     splitted_var = np.split(var_table, split_inds[:-1])
     variables = _prepare_params(tmp_organo, splitted_var, parameters)
+    return distance_regularized(tmp_organo, organo, variables,
+                                solver, geom, model,
+                                to_regularize=regularization['dic'],
+                                reg_weight=regularization['weight'],
+                                sum_residuals=sum_obj,
+                                IPRINT=iprint_file,
+                                **minimize_opt)
+
+
+def _opt_dist(var_table, organo, regularization, sum_obj,
+              iprint_file=None, opt_tensions=None,
+              **minimize_opt):
+    tmp_organo = organo.copy()
+    variables = {}
+    if opt_tensions is None:
+        variables[('edge', 'line_tension')] = prepare_tensions(
+            tmp_organo, var_table[:3*tmp_organo.Nf])
+    else:
+        variables[('edge', 'line_tension')] = prepare_tensions(organo,
+                                                               opt_tensions)
+        variables[('face', 'prefered_area')] = var_table
+    if len(var_table) % organo.Nf != 0:
+        variables[('lumen_prefered_vol', None)] = var_table[-1]
     return distance_regularized(tmp_organo, organo, variables,
                                 solver, geom, model,
                                 to_regularize=regularization['dic'],
@@ -302,9 +323,6 @@ def _psqp_dist_opt(organo, initial_guess, regularization,
     psqp.setOption('IFILE', main_min_opt.get('output_path', 'PSQP.out'))
 
     [fstr, xstr, inform] = psqp(opt_prob,
-                                sens_type='FD',
-                                disp_opts=True,
-                                sens_mode='pgc',
                                 pb_obj='min_dist',
                                 organo=organo,
                                 regularization=regularization,
@@ -365,29 +383,6 @@ def _scale_opt_obj(scale, organo, tensions_array):
                                                                tensions_array)
     solver.find_energy_min(tmp_eptm, geom, model)
     return np.sum(np.linalg.norm(_distance(organo, tmp_eptm), axis=1))
-
-
-def _opt_dist(var_table, organo, regularization, sum_obj,
-              iprint_file=None, opt_tensions=None,
-              **minimize_opt):
-    tmp_organo = organo.copy()
-    variables = {}
-    if opt_tensions is None:
-        variables[('edge', 'line_tension')] = prepare_tensions(
-            tmp_organo, var_table[:3*tmp_organo.Nf])
-    else:
-        variables[('edge', 'line_tension')] = prepare_tensions(organo,
-                                                               opt_tensions)
-        variables[('face', 'prefered_area')] = var_table
-    if len(var_table) % organo.Nf != 0:
-        variables[('lumen_prefered_vol', None)] = var_table[-1]
-    return distance_regularized(tmp_organo, organo, variables,
-                                solver, geom, model,
-                                to_regularize=regularization['dic'],
-                                reg_weight=regularization['weight'],
-                                sum_residuals=sum_obj,
-                                IPRINT=iprint_file,
-                                **minimize_opt)
 
 
 def _obj_bfgs(initial_guess, organo, regularization, minimize_opt):
@@ -487,7 +482,6 @@ def _prepare_params(organo, splitted_var, parameters):
     """
     variables = {}
     for ind, (elem, param) in enumerate(parameters):
-        print(elem, param, splitted_var[ind][:-1])
         if param == 'line_tension':
             variables[(elem, param)] = prepare_tensions(
                 organo, splitted_var[ind])

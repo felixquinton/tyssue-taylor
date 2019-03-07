@@ -64,6 +64,8 @@ def distance_regularized(eptm, objective_eptm, variables,
                     np.concatenate((dist, reg_mod, tension_bound)))])
             else:
                 csv_writer.writerow([obj])
+    print(np.sum(np.concatenate((dist, reg_mod, tension_bound))),
+          obj)
     return obj
 
 

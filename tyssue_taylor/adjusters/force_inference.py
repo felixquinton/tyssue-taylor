@@ -89,7 +89,7 @@ def _coef_matrix(organo, sup_param='', no_scale=False):
     # the single edges. An index over only one half-edge per edge
     # can be obtained with:
 
-    coef = coef[:, organo.sgle_edges].toarray()
+    coef = coef[:, :3*organo.Nf].toarray()
     if sup_param == 'areas':
         coef = np.c_[coef, _areas_coefs(organo, no_scale)]
     elif sup_param == 'pressions':
@@ -172,9 +172,10 @@ def _areas_coefs(organo, no_scale):
 
 def _right_side(organo, coefs):
     res = np.zeros(coefs.shape[0])
-    res[-1] = (organo.edge_df.line_tension.mean() /
+    res[-1] = (organo.apical_edges.shape[0] *
+               (organo.edge_df.line_tension.mean() /
                (organo.face_df.area_elasticity.mean() *
-                organo.face_df.prefered_area.mean()**1.5))
+                organo.face_df.prefered_area.mean()**1.5)))
     return res
 
 
@@ -302,15 +303,20 @@ if __name__ == "__main__":
         METHOD = 'NNLS'
     elif ARGS['mp']:
         METHOD = 'MP'
-    NF, R_IN, R_OUT = (3, 1, 4)
-    ORGANO = create_organo(NF, R_IN, R_OUT, rot=np.pi/12)
+    NF, R_IN, R_OUT = (3, 1, 2)
+    ORGANO = create_organo(NF, R_IN, R_OUT)
     ORGANO.edge_df.loc[:NF, 'line_tension'] *= 2
     ORGANO.edge_df.loc[NF:2*NF-1, 'line_tension'] = 0
     geom.update_all(ORGANO)
-    Solver.find_energy_min(ORGANO, geom, model)
+    print(ORGANO.vert_df.loc[:, ('x', 'y')])
+    # Solver.find_energy_min(ORGANO, geom, model)
     COEFS = _coef_matrix(ORGANO, sup_param=SUP_PARAM)
     CONSTANT = _right_side(ORGANO, COEFS)
     RES_INFERENCE = infer_forces(ORGANO, method=METHOD,
                                  sup_param=SUP_PARAM, no_scale=False)
+    print(ORGANO.vert_df.loc[:, ('x', 'y')])
+    print(ORGANO.edge_df.loc[:, ('srce', 'trgt', 'length')])
     _print_solving_results(ORGANO, RES_INFERENCE, COEFS, CONSTANT, SUP_PARAM)
+    pd.DataFrame(COEFS).to_csv('A_symetric.csv')
+    pd.DataFrame(CONSTANT).to_csv('b_symetric.csv')
     print(RES_INFERENCE)
