@@ -4,6 +4,7 @@ process
 import warnings
 import numpy as np
 import csv
+from tyssue_taylor.models.annular import AnnularGeometry as geom
 
 
 def distance_regularized(eptm, objective_eptm, variables,
@@ -12,6 +13,7 @@ def distance_regularized(eptm, objective_eptm, variables,
                          sum_residuals=False,
                          coords=None,
                          IPRINT=None,
+                         COPY_OR_SYM='copy',
                          **kwargs):
     """Changes variables inplace in the epithelium, finds the energy minimum,
     and returns the distance between the new configuration and the objective
@@ -31,7 +33,12 @@ def distance_regularized(eptm, objective_eptm, variables,
     change i.e.
     IPRINT : string. Path to a file used to save the value of the distance.
     """
-    tmp_eptm = eptm.copy()
+    if COPY_OR_SYM == 'copy':
+        tmp_eptm = eptm.copy()
+    elif COPY_OR_SYM == 'sym':
+        tmp_eptm = create_organo(eptm.Nf,
+                                 eptm.settings['R_in'],
+                                 eptm.settings['R_out'])
     for (elem, columns), values in variables.items():
         if elem in tmp_eptm.data_names:
             tmp_eptm.datasets[elem][columns] = values
@@ -113,3 +120,66 @@ def _tension_bounds(actual_eptm, coords=None):
     tension_ub[tensions > 1e3] = tensions[tensions > 1e3] - 1e3
     return 1e3*np.power((tension_lb + tension_ub),
                         np.full(tension_lb.shape, 3))
+
+
+def create_organo(nb_cells, r_in, r_out, seed=None, rot=None, geom=geom):
+    organo = generate_ring(nb_cells, r_in, r_out)
+    Nf = organo.Nf
+    geom.update_all(organo)
+    alpha = 1 + 1/(20*(organo.settings['R_out']-organo.settings['R_in']))
+    specs = {
+        'face': {
+            'is_alive': 1,
+            'prefered_area': organo.face_df.area,
+            'area_elasticity': 1., },
+        'edge': {
+            'ux': 0.,
+            'uy': 0.,
+            'uz': 0.,
+            'line_tension': 0.1,
+            'is_active': 1
+            },
+        'vert': {
+            'adhesion_strength': 0.,
+            'x_ecm': 0.,
+            'y_ecm': 0.,
+            'is_active': 1
+            },
+        'settings': {
+            'lumen_elasticity': 0.1,
+            'lumen_prefered_vol': organo.settings['lumen_volume'],
+            'lumen_volume': organo.settings['lumen_volume']
+            }
+        }
+    organo.update_specs(specs, reset=True)
+    normalize_scale(organo, geom, refer='edges')
+    geom.update_all(organo)
+    if seed is not None:
+        symetric_tensions = set_init_point(organo.settings['R_in'],
+                                           organo.settings['R_out'],
+                                           organo.Nf, alpha)
+        sin_mul = 1+(np.sin(np.linspace(0, 2*np.pi, organo.Nf,
+                                        endpoint=False)))**2
+        organo.face_df.prefered_area *= np.random.normal(1.0, 0.05, organo.Nf)
+        organo.edge_df.line_tension = prepare_tensions(organo,
+                                                       symetric_tensions)
+        organo.edge_df.loc[:Nf-1, 'line_tension'] *= sin_mul*np.random.normal(
+            1.0, 0.05, organo.Nf)
+        geom.update_all(organo)
+    if rot is not None:
+        organo.vert_df.loc[:, 'x'] = (organo.vert_df.x.copy() * np.cos(rot) -
+                                      organo.vert_df.y.copy() * np.sin(rot))
+        print('rotated x',
+              organo.vert_df.x.copy() * np.cos(rot) -
+              organo.vert_df.y.copy() * np.sin(rot))
+        organo.vert_df.loc[:, 'y'] = (organo.vert_df.x.copy() * np.sin(rot) +
+                                      organo.vert_df.y.copy() * np.cos(rot))
+        print('rotated y',
+              organo.vert_df.x.copy() * np.sin(rot) +
+              organo.vert_df.y.copy() * np.cos(rot))
+        geom.update_all(organo)
+    organo.vert_df[['x_ecm', 'y_ecm']] = organo.vert_df[['x', 'y']]
+    organo.vert_df.loc[organo.basal_verts, 'adhesion_strength'] = 0.01
+    new_tensions = organo.edge_df.line_tension
+    organo.edge_df.loc[:, 'line_tension'] = new_tensions
+    return organo

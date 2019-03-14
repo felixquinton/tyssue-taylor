@@ -36,6 +36,7 @@ def adjust_parameters(eptm, initial_guess, regularization,
                                   ('face', 'prefered_area')],
                       energy_min_opt=None, initial_min_opt=None,
                       iprint_file=None,
+                      COPY_OR_SYM='copy',
                       **main_min_opt):
     """Find the line tensions which minimize the distance to the epithelium
 
@@ -77,7 +78,7 @@ def adjust_parameters(eptm, initial_guess, regularization,
     if main_min_opt['method'] in ('trf', 'lm'):
         return least_squares(_new_opt_dist, initial_guess, **main_min_opt,
                              args=(organo, regularization, False,
-                                   parameters, iprint_file),
+                                   parameters, iprint_file, COPY_OR_SYM),
                              kwargs=minimize_opt)
     else:
         print(f"Unknown method : f{main_min_opt['method']}")
@@ -85,7 +86,7 @@ def adjust_parameters(eptm, initial_guess, regularization,
 
 
 def _new_opt_dist(var_table, organo, regularization, sum_obj, parameters,
-                  iprint_file=None, **minimize_opt):
+                  iprint_file=None, COPY_OR_SYM='copy', **minimize_opt):
     tmp_organo = organo.copy()
     split_inds = np.cumsum([organo.datasets[elem][column].size
                             for elem, column in parameters])
@@ -97,6 +98,7 @@ def _new_opt_dist(var_table, organo, regularization, sum_obj, parameters,
                                 reg_weight=regularization['weight'],
                                 sum_residuals=sum_obj,
                                 IPRINT=iprint_file,
+                                COPY_OR_SYM='copy',
                                 **minimize_opt)
 
 
