@@ -33,11 +33,11 @@ def create_organo(nb_cells, r_in, r_out, seed=None, rot=None, geom=geom):
             'ux': 0.,
             'uy': 0.,
             'uz': 0.,
-            'line_tension': 0.001,
+            'line_tension': 0.1,
             'is_active': 1
             },
         'vert': {
-            'adhesion_strength': 0.,
+            'adhesion_strength': 0.01,
             'x_ecm': 0.,
             'y_ecm': 0.,
             'is_active': 1
