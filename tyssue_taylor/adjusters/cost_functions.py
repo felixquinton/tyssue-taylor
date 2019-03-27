@@ -4,7 +4,9 @@ process
 import warnings
 import numpy as np
 import csv
+from tyssue.generation import generate_ring
 from tyssue_taylor.models.annular import AnnularGeometry as geom
+from tyssue_taylor.segmentation.segment2D import normalize_scale
 
 
 def distance_regularized(eptm, objective_eptm, variables,
@@ -179,7 +181,7 @@ def create_organo(nb_cells, r_in, r_out, seed=None, rot=None, geom=geom):
               organo.vert_df.y.copy() * np.cos(rot))
         geom.update_all(organo)
     organo.vert_df[['x_ecm', 'y_ecm']] = organo.vert_df[['x', 'y']]
-    organo.vert_df.loc[organo.basal_verts, 'adhesion_strength'] = 0.01
+    organo.vert_df.loc[organo.basal_verts, 'adhesion_strength'] = 0
     new_tensions = organo.edge_df.line_tension
     organo.edge_df.loc[:, 'line_tension'] = new_tensions
     return organo
