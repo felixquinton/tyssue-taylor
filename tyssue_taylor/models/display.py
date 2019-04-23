@@ -15,8 +15,7 @@ from tyssue.draw.plt_draw import sheet_view
 from tyssue_taylor.models.annular import AnnularGeometry as geom
 from tyssue_taylor.models.annular import model
 from tyssue_taylor.segmentation.segment2D import normalize_scale
-from tyssue_taylor.adjusters.adjust_annular import (set_init_point,
-                                                    prepare_tensions)
+from tyssue_taylor.adjusters.adjust_annular import prepare_tensions
 
 
 def create_organo(nb_cells, r_in, r_out, seed=None, rot=None, geom=geom):

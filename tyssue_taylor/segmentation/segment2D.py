@@ -4,8 +4,8 @@ contours from microscopy images
 """
 from glob import glob
 import numpy as np
-from sympy import Line, oo
 import pandas as pd
+from scipy import interpolate as intplt
 from tyssue.generation import generate_ring
 from tifffile import imread
 from stardist import dist_to_coord, non_maximum_suppression, StarDist
@@ -13,7 +13,7 @@ from csbdeep.utils import normalize
 import cv2 as cv
 
 
-def generate_ring_from_image(brightfield_path, dapi_path, method='CP',
+def generate_ring_from_image(brightfield_path, dapi_path,
                              scp_model_path=None,
                              threshold=28, blur=9,
                              rol_window_inside=100,
@@ -46,37 +46,25 @@ def generate_ring_from_image(brightfield_path, dapi_path, method='CP',
     """
 
     membrane_dic = extract_membranes(brightfield_path, threshold, blur)
-    if method == 'CP':
-        clockwise_centers = extract_nuclei(dapi_path,
-                                           membrane_dic['center_inside'],
-                                           membrane_dic['raw_inside'],
-                                           membrane_dic['img_shape'])
-    elif method == 'SCP':
-        clockwise_centers = _star_convex_polynoms(dapi_path,
-                                                  membrane_dic['center_inside'],
-                                                  membrane_dic['raw_inside'],
-                                                  membrane_dic['img_shape'],
-                                                  scp_model_path)
-    #rolling mean
+    clockwise_centers = _star_convex_polynoms(dapi_path,
+                                              membrane_dic,
+                                              scp_model_path)
+
     inside_df = pd.DataFrame(membrane_dic['inside'], index=None)
     outside_df = pd.DataFrame(membrane_dic['outside'], index=None)
     inners = inside_df.rolling(rol_window_inside, min_periods=1).mean().values
     outers = outside_df.rolling(rol_window_outside, min_periods=1).mean().values
 
-    #defining the organoid using the data we saved above
     nb_cells = len(clockwise_centers)
 
-    org_center = membrane_dic['center_inside']-\
-                 np.full(2, membrane_dic['img_shape'][0]/2.0)
+    org_center = membrane_dic['center_inside'] - \
+        np.full(2, membrane_dic['img_shape'][0]/2.0)
 
-    #compute the vertices of the mesh
     inner_vs, outer_vs = get_bissecting_vertices(clockwise_centers, inners,
                                                  outers, org_center)
 
-    #initialising the mesh
     organo = generate_ring(nb_cells, membrane_dic['rIn'], membrane_dic['rOut'])
 
-    # adjustement
     organo.vert_df.loc[organo.apical_verts,
                        organo.coords] = (inner_vs[::-1]-np.full(
                            inner_vs.shape, org_center))*0.323
@@ -90,11 +78,11 @@ def generate_ring_from_image(brightfield_path, dapi_path, method='CP',
     clockwise_centers *= 0.323
     organo.settings['R_in'] *= 0.323
     organo.settings['R_out'] *= 0.323
-    print(organo.settings)
+
     return organo, inners, outers, clockwise_centers
 
-def _star_convex_polynoms(dapi_path, center_inside,
-                          raw_inside, img_shape, model_path):
+
+def _star_convex_polynoms(dapi_path, membrane_dic, model_path):
     images = sorted(glob(dapi_path))
     images = list(map(imread, images))
     img = normalize(images[0], 1, 99.8)
@@ -105,19 +93,16 @@ def _star_convex_polynoms(dapi_path, center_inside,
     coord = dist_to_coord(dist)
     points = non_maximum_suppression(coord, prob, prob_thresh=0.4)
     points = np.flip(points, 1)
-    centers = _delete_artifact(points, raw_inside)
 
-    clockwise_centers = _arrange_centers_clockwise(centers, center_inside)
+    rho, phi = _card_coords(points, membrane_dic['center_inside'])
+    cleaned = _quick_del_art(points, rho, membrane_dic['radius_inside'])
+    clockwise_centers = _quick_clockwise(cleaned,
+                                         phi, rho,
+                                         membrane_dic['radius_inside'])
 
-    clockwise_centers -= np.full(np.asarray(clockwise_centers).shape,
-                                 (img_shape[0]/2.0, img_shape[1]/2.0))
-    clockwise_centers = np.float32(np.asarray(clockwise_centers))
-    #clockwise_centers = np.unique(clockwise_centers, axis=0)
-    tmp = []
-    [tmp.append(tuple(r)) for r in clockwise_centers if tuple(r) not in tmp]
-    clockwise_centers = np.array(tmp)
-    #print(clockwise_centers.shape)
-    #print(np.hstack((trying, clockwise_centers)))
+    clockwise_centers = np.subtract(np.float32(clockwise_centers),
+                                    np.array(membrane_dic['img_shape'])/2.0)
+
     return clockwise_centers
 
 
@@ -141,9 +126,7 @@ def extract_membranes(brightfield_path, threshold=28, blur=9):
 
     """
     img = cv.imread(brightfield_path, cv.IMREAD_GRAYSCALE).copy()
-    #28
     _, img = cv.threshold(img, threshold, 255, 0)
-    #9
     img = cv.GaussianBlur(img, (blur, blur), 0)
 
     img, contours, _ = cv.findContours(img, cv.RETR_TREE,
@@ -151,8 +134,6 @@ def extract_membranes(brightfield_path, threshold=28, blur=9):
     contours = np.array(contours)
 
     contours_length = np.array([c.size for c in contours])
-    #print(contours_length)
-    #special case for contour from actin_surligned
     membrane_ind = np.argsort(contours_length)[-2:]
     if threshold == 2:
         membrane_ind = np.argsort(contours_length)[::2]
@@ -173,6 +154,9 @@ def extract_membranes(brightfield_path, threshold=28, blur=9):
     res_dic['raw_inside'] = inside
     res_dic['raw_outside'] = outside
 
+    res_dic['radius_inside'] = res_dic['rIn']
+    res_dic['radius_outside'] = res_dic['rOut']
+
     res_dic['inside'] = (inside - np.ones(inside.shape)*(img.shape[0]/2.0,
                                                          img.shape[1]/2.0))
     res_dic['outside'] = (outside - np.ones(outside.shape)*(img.shape[0]/2.0,
@@ -180,37 +164,6 @@ def extract_membranes(brightfield_path, threshold=28, blur=9):
     res_dic['img_shape'] = img.shape
 
     return res_dic
-
-
-def extract_nuclei(cp_dapi_path, center_inside, raw_inside, img_shape):
-    """
-    Parameters
-    ----------
-    cp_dapi_path : string
-      path to the csv output file from CellProfiler
-
-    Return
-    ----------
-    clockwise_centers : np.array of shape (Nf, 2)
-      coordinates of the nuclei centers ordonned clockwise.
-
-    """
-    dapi_df = pd.read_csv(cp_dapi_path)
-    centers = np.column_stack((dapi_df['AreaShape_Center_X'],
-                               dapi_df['AreaShape_Center_Y']))
-
-    centers = _delete_artifact(centers, raw_inside)
-
-    clockwise_centers = _arrange_centers_clockwise(centers, center_inside)
-
-    clockwise_centers -= np.full(np.asarray(clockwise_centers).shape,
-                                 (img_shape[0]/2.0, img_shape[1]/2.0))
-    #delete doubled centers. np.unique does not do the job...
-    #use a trick from https://stackoverflow.com/questions/16970982/find-unique-rows-in-numpy-array
-    tmp = []
-    [tmp.append(tuple(r)) for r in clockwise_centers if tuple(r) not in tmp]
-    clockwise_centers = np.array(tmp)
-    return clockwise_centers
 
 
 def get_bissecting_vertices(centers, inners, outers, org_center):
@@ -237,7 +190,7 @@ def get_bissecting_vertices(centers, inners, outers, org_center):
                                centers[:, 0]-org_center[0])
     bissect = (theta_centers + np.roll(theta_centers, 1, axis=0))/2
     dtheta = (theta_centers - np.roll(theta_centers, 1, axis=0))
-    # periodic boundary
+
     bissect[dtheta >= np.pi] -= np.pi
     bissect[dtheta < -np.pi] += np.pi
     theta_inners = np.arctan2(inners[:, 1]-org_center[1],
@@ -248,6 +201,7 @@ def get_bissecting_vertices(centers, inners, outers, org_center):
     inner_vs = inners.take(_find_closer_angle(bissect, theta_inners), axis=0)
     outer_vs = outers.take(_find_closer_angle(bissect, theta_outers), axis=0)
     return inner_vs, outer_vs
+
 
 def normalize_scale(organo, geom, refer='area'):
     """Rescale an organo so that the mean cell area is close to 1.
@@ -289,9 +243,10 @@ def normalize_scale(organo, geom, refer='area'):
     geom.update_all(organo)
     area_factor = organo.face_df.area/old_area
     organo.face_df.prefered_area *= area_factor
-    organo.settings['lumen_prefered_vol'] *= (organo.settings['lumen_volume']/
+    organo.settings['lumen_prefered_vol'] *= (organo.settings['lumen_volume'] /
                                               old_lumen_vol)
     return organo
+
 
 def _recognize_in_from_out(retained_contours, centers, radii):
     '''Reliable recognition of the inner and outer contours
@@ -307,110 +262,36 @@ def _recognize_in_from_out(retained_contours, centers, radii):
     clockwise_centers : np.array of shape (Nf, 2)
       coordinates of the centers of the nuclei, arrange clockwise
     '''
-    retained_contours = np.array((np.squeeze(retained_contours[0]),
-                                  np.squeeze(retained_contours[1])))
+    retained_contourss = np.array((retained_contours[0].squeeze(),
+                                   retained_contours[1].squeeze()))
 
-    dist = retained_contours - \
-            np.array((np.full(retained_contours[0].shape, centers[0]),
-                      np.full(retained_contours[1].shape, centers[1])))
+    rho0, phi0 = _card_coords(retained_contourss[0], centers[0])
+    rho1, phi1 = _card_coords(retained_contourss[1], centers[1])
+    sort_ind = np.argsort((rho0.sum(), rho1.sum()))
 
-    norm = np.array((np.mean(np.linalg.norm(dist[0], axis=1)),
-                     np.mean(np.linalg.norm(dist[1], axis=1))))
     res = {}
-    inside, outside = retained_contours[np.argsort(norm)]
-    res['center_inside'], res['center_outside'] = centers[np.argsort(norm)]
-    res['rIn'], res['rOut'] = radii[np.argsort(norm)]
+    inside, outside = retained_contours[sort_ind]
+    res['center_inside'], res['center_outside'] = centers[sort_ind]
+    res['rIn'], res['rOut'] = radii[sort_ind]
     return inside, outside, res
 
-def _arrange_centers_clockwise(centers, org_center):
-    '''Arrange the centers clockwise
-    Parameters
-    ----------
-    centers : np.ndarray of shape (Nf,2)
-      the centers of the nuclei
-    org_center : tuple (x,y)
-      coordinates of the center of the organo
 
-    Returns
-    -------
-    clockwise_centers : np.array of shape (Nf, 2)
-      coordinates of the centers of the nuclei, arrange clockwise
-    '''
-    centers = [(i[0], i[1]) for i in centers]
-    #for each cell defined by its center, compute its closest clockwise neighbor
-    neighbors = _find_neighbor(centers, org_center)
-    #we need the list of cell nuclei to be clockwise ordered
-    clockwise_centers = [neighbors[centers[0]]]
-    for i in centers[0:len(centers)-1]:
-        tmp = clockwise_centers[len(clockwise_centers)-1]
-        clockwise_centers.append(neighbors[tmp])
-    return clockwise_centers
+def _card_coords(array, center):
+    x, y = array[:, 0], array[:, 1]
+    x0, y0 = center
+    rho = np.linalg.norm(np.c_[x-x0, y-y0], axis=1)
+    phi = np.arctan2(y-y0, x-x0)
+    return rho, phi
 
-def _delete_artifact(centers, raw_inside):
-    '''
-    Parameters
-    ----------
-    centers : np.ndarray of shape (Nf,2)
-      the centers of the nuclei
-    raw_inside : np.array
-      squeezed contour from opencv of the inner membrane.
 
-    Returns
-    -------
-    centers : np.array
-      the centers of the nuclei that are not artifacts
-    '''
-    #delete the centers which are not inside the organo (possibly newborn cells ??)
-    c2m = np.array([np.min(np.linalg.norm(np.full(raw_inside.shape, center)-
-                                          raw_inside, axis=1))
-                    for center in centers])
-    to_del = np.argwhere(c2m > 2*np.mean(c2m))
-    return np.delete(centers, to_del, 0)
+def _quick_clockwise(array, phi, rho, radius):
+    res = array[np.argsort(phi[rho > radius*0.8]), :]
+    return res
 
-#Computing the nearest clockwise neighbouring nucleus
-def _find_neighbor(centers, org_center):
-    '''
-    Parameters
-    ----------
-    cells : np.ndarray of shape (Nf,2)
-      the centers of the nuclei
-    org_center : tuple (x,y)
-      coordinates of the center of the organo
 
-    Returns
-    -------
-    neighbors : dictionnary with fields
-      coordinates of the centers of the nuclei
-      and values coordinates of the centers of the neighbor of the field key
-    '''
-    neighbors = {}
-    # nested loops are bad and should be avoided
-    # you can look into np.meshgrid to have a flat iterator
-    # over a 2D grid
-
-    # Here, you should rather look into
-    # the scipy.spatial module, and the
-    # KDTree neighbor finding structure
-    # https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.cKDTree.html
-    for i in centers:
-        centered_i = (i[0]-org_center[0], i[1]-org_center[1])
-        min1 = 10**6
-        argmin1 = -1
-        for j in centers:
-            centered_j = (j[0]-org_center[0], j[1]-org_center[1])
-            if not (centered_i[0] == centered_j[0] and not
-                    centered_i[1] == centered_j[1]):
-                dot_prod = (centered_i[0]*centered_j[1]-
-                            centered_i[1]*centered_j[0])
-                distance = np.sqrt((centered_i[0]-centered_j[0])**2 +
-                                   (centered_i[1]-centered_j[1])**2)
-                if dot_prod > 0 and distance < min1:
-                    min1 = np.sqrt((centered_i[0]-centered_j[0])**2 +
-                                   (centered_i[1]-centered_j[1])**2)
-                    argmin1 = j
-        neighbors[i] = argmin1
-    return neighbors
-
+def _quick_del_art(array, rho, radius):
+    res = array[rho > radius*0.8]
+    return res
 
 
 def _find_closer_angle(theta0, theta1):
@@ -440,11 +321,11 @@ def _find_closer_angle(theta0, theta1):
     '''
     tt0, tt1 = np.meshgrid(theta0, theta1)
     dtheta = tt0 - tt1
-    # periodic boundary
     dtheta[dtheta > np.pi] -= 2*np.pi
     dtheta[dtheta <= -np.pi] += 2*np.pi
 
     return (dtheta**2).argmin(axis=0)
+
 
 def _fill_gaps(contour, gap_dist):
     ''' !!! update :Finds the gaps in a contour from opencv findContours and
@@ -463,35 +344,17 @@ def _fill_gaps(contour, gap_dist):
     res : nd.array of shape (y,2)
       the points to ad to the contour so that it is closed.
     '''
+
     distance = np.linalg.norm(contour-np.roll(contour, -1, axis=0), axis=1)
-    gaps = np.squeeze(np.argwhere(distance > gap_dist))
+    gaps = np.argwhere(distance > gap_dist).squeeze()
     res = np.empty((0, 2))
     for gap in gaps:
-        line = Line(contour[gap], contour[(gap+1)%len(contour)])
-        if line.slope == oo:
-            xcord = np.full((int(distance[gap]), 1), contour[gap][0])
-            ycord = np.linspace(contour[gap][1]+
-                                (contour[(gap+1)%len(contour)][1]-
-                                 contour[gap][1])/distance[gap],
-                                contour[(gap+1)%len(contour)][1],
-                                int(distance[gap]), endpoint=False)
-            points = np.column_stack((xcord, np.float32(ycord)))
-        elif line.slope == 0:
-            xcord = np.linspace(contour[gap][0]+
-                                (contour[(gap+1)%len(contour)][0]-
-                                 contour[gap][0])/distance[gap],
-                                contour[(gap+1)%len(contour)][0],
-                                int(distance[gap]), endpoint=False)
-            ycord = np.full((int(distance[gap]), 1), contour[gap][1])
-            points = np.column_stack((xcord, np.float32(ycord)))
-        else:
-            constant = contour[gap][1] - contour[gap][0] * line.slope
-            xcord = np.linspace(contour[gap][0]+
-                                (contour[(gap+1)%len(contour)][0]-
-                                 contour[gap][0])/distance[gap],
-                                contour[(gap+1)%len(contour)][0],
-                                int(distance[gap]), endpoint=False)
-            ycord = int(line.slope) * xcord + constant
-            points = np.column_stack((xcord, np.float32(ycord)))
-        res = np.concatenate((res, points))
+        x = contour[gap]
+        y = contour[(gap+1) % len(contour)]
+        pts = np.vstack(((x[0], y[0]), (x[1], y[1])))
+        tck, u = intplt.splprep(pts, k=1)
+        u_new = np.linspace(u.min(), u.max(), 10)
+        x_new, y_new = intplt.splev(u_new, tck, der=0)
+        res = np.concatenate((res,
+                              np.column_stack((x_new, y_new))))
     return res

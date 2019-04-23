@@ -6,7 +6,6 @@ from tyssue import PlanarGeometry
 from tyssue.dynamics import effectors, units
 from tyssue.generation import generate_ring
 from tyssue.dynamics.factory import model_factory
-from tyssue_taylor.segmentation.segment2D import normalize_scale
 
 
 def mesh_from_data(centers, inner_contour, outer_contour):
