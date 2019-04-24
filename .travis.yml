@@ -16,8 +16,8 @@ before_install:
   - source activate tyssue-taylor
   - pwd
   - cd ..
-  - git clone https://github.com/madebr/pyOpt.git
-  - cd pyOpt
+  - git clone https://github.com/mpicbg-csbd/stardist.git
+  - cd stardist
   - python setup.py install
   - cd ../tyssue-taylor
   - conda install pytest pytest-cov opencv
