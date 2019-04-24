@@ -101,7 +101,6 @@ def _opt_cst_obj(sum_tensions, eptm):
     exp_eptm = _tmp_infer_forces(th_eptm,
                                  sum_tensions).copy()
     dist = np.sum(_distance(th_eptm, exp_eptm))
-    print(dist)
     return dist
 
 
@@ -123,7 +122,7 @@ def _tmp_infer_forces(eptm,
     return tmp_organo
 
 
-def _coef_matrix(organo, sup_param='', t_sum=0.01):
+def _coef_matrix(organo, sup_param='areas', t_sum=0.01):
     organo.get_extra_indices()
     u_ij = organo.edge_df.eval('dx / length')
     v_ij = organo.edge_df.eval('dy / length')
@@ -281,6 +280,8 @@ def _infer_pol(eptm):
     sym_dist = sym_height/3 * (sym_la + 2*sym_lb)/(sym_la + sym_lb)
 
     polar_coefs = dist
+
+    polar_coefs[np.isnan(polar_coefs)] = 1
     return polar_coefs
 
 

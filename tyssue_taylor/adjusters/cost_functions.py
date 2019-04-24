@@ -52,7 +52,7 @@ def distance_regularized(eptm, objective_eptm, variables,
 
     dist = _distance(tmp_eptm, objective_eptm, coords)
     tension_bound = _tension_bounds(tmp_eptm)
-    obj = np.concatenate((dist, reg_mod, tension_bound))
+    obj = np.concatenate((dist, tension_bound))
 
     if IPRINT is not None:
         _save_opt_data(IPRINT, obj)
@@ -68,8 +68,8 @@ def _distance(actual_eptm, objective_eptm, coords=None):
 
 
 def _tension_bounds(actual_eptm):
-    tensions = (neg_org.edge_df.loc[:, 'line_tension']
-                [:3*neg_org.Nf].values)
+    tensions = (actual_eptm.edge_df.loc[:, 'line_tension']
+                [:3*actual_eptm.Nf].values)
     pen = np.zeros(tensions.shape)
     pen[tensions < 0] = 1000*tensions[tensions < 0]**2
     return pen

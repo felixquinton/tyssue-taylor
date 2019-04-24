@@ -95,10 +95,10 @@ def _star_convex_polynoms(dapi_path, membrane_dic, model_path):
     points = np.flip(points, 1)
 
     rho, phi = _card_coords(points, membrane_dic['center_inside'])
-    cleaned = _quick_del_art(points, rho, membrane_dic['radius_inside'])
+    cleaned = _quick_del_art(points, rho, membrane_dic['rIn'])
     clockwise_centers = _quick_clockwise(cleaned,
                                          phi, rho,
-                                         membrane_dic['radius_inside'])
+                                         membrane_dic['rIn'])
 
     clockwise_centers = np.subtract(np.float32(clockwise_centers),
                                     np.array(membrane_dic['img_shape'])/2.0)
@@ -106,7 +106,7 @@ def _star_convex_polynoms(dapi_path, membrane_dic, model_path):
     return clockwise_centers
 
 
-def extract_membranes(brightfield_path, threshold=28, blur=9):
+def extract_membranes(brightfield_path, threshold=2, blur=9):
     """
     Parameters
     ----------
@@ -153,9 +153,6 @@ def extract_membranes(brightfield_path, threshold=28, blur=9):
 
     res_dic['raw_inside'] = inside
     res_dic['raw_outside'] = outside
-
-    res_dic['radius_inside'] = res_dic['rIn']
-    res_dic['radius_outside'] = res_dic['rOut']
 
     res_dic['inside'] = (inside - np.ones(inside.shape)*(img.shape[0]/2.0,
                                                          img.shape[1]/2.0))
@@ -262,11 +259,11 @@ def _recognize_in_from_out(retained_contours, centers, radii):
     clockwise_centers : np.array of shape (Nf, 2)
       coordinates of the centers of the nuclei, arrange clockwise
     '''
-    retained_contourss = np.array((retained_contours[0].squeeze(),
-                                   retained_contours[1].squeeze()))
+    retained_contours = np.array((retained_contours[0].squeeze(),
+                                  retained_contours[1].squeeze()))
 
-    rho0, phi0 = _card_coords(retained_contourss[0], centers[0])
-    rho1, phi1 = _card_coords(retained_contourss[1], centers[1])
+    rho0, phi0 = _card_coords(retained_contours[0], centers[0])
+    rho1, phi1 = _card_coords(retained_contours[1], centers[1])
     sort_ind = np.argsort((rho0.sum(), rho1.sum()))
 
     res = {}

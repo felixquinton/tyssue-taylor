@@ -5,96 +5,134 @@ import pandas as pd
 
 from tyssue.generation import generate_ring
 from tyssue_taylor.models.annular import AnnularGeometry as geom
-from tyssue_taylor.adjusters.force_inference import (_adj_edges,
-                                                     _adj_faces,
-                                                     _collect_data,
-                                                     _coef_matrix,
-                                                     infer_forces)
+from tyssue_taylor.adjusters.force_inference import (_coef_matrix,
+                                                     _areas_coefs,
+                                                     _infer_pol,
+                                                     _get_sim_param,
+                                                     _right_side,
+                                                     _t_per_cell_coefs,
+                                                     infer_forces,
+                                                     _tmp_infer_forces,
+                                                     _opt_cst_obj,
+                                                     opt_sum_lambda)
 
 
-def test_adj_edges():
+def test_infer_pol():
+    organo = generate_ring(3, 1, 2)
+    pol_organo = organo.copy()
+    pol_organo.vert_df.loc[pol_organo.basal_verts, ('x', 'y')] *= 1.1
+    geom.update_all(pol_organo)
+    for val in _infer_pol(pol_organo):
+        assert round(val, 9) == 0.9
+
+
+def test_get_sim_param():
+    Nf = 3
+    Ra = 1
+    Rb = 2
+    res = _get_sim_param(Nf, Ra, Rb)
+    assert round(res[0], 6) == -0.00448
+    assert round(res[1], 6) == 0.00224
+    assert round(res[2], 6) == 0.00776
+
+    res2 = _get_sim_param(Nf, Ra, Rb, sum_lbda=0.02)
+    assert round(res[0], 6) == 0.5*round(res2[0], 6)
+    assert round(res[1], 6) == 0.5*round(res2[1], 6)
+    assert round(res[2], 6) == 0.5*round(res2[2], 6)
+
+
+def test_right_side():
+    organo = generate_ring(3, 1, 2)
+    pol_organo = organo.copy()
+    pol_organo.vert_df.loc[pol_organo.basal_verts, ('x', 'y')] *= 1.1
+    geom.update_all(pol_organo)
+    cst = _right_side(pol_organo)
+    assert isinstance(cst, np.ndarray)
+    assert np.array_equal(cst.shape, (15,))
+    assert np.array_equal(cst[:12], np.zeros(12))
+    assert not np.isnan(cst[12:]).any()
+
+
+def test_t_per_cell_coefs():
+    organo = generate_ring(3, 1, 2)
+    t_per_cell = _t_per_cell_coefs(organo,
+                                   _get_sim_param(3, 1, 2),
+                                   _infer_pol(organo))
+    assert isinstance(t_per_cell, np.ndarray)
+    assert np.array_equal(t_per_cell.shape, (3, 13))
+    assert np.array_equal(t_per_cell[:, :3], np.eye(3))
+    assert np.array_equal(t_per_cell[:, 3:6], np.eye(3))
+    assert np.array_equal(t_per_cell[:, 6:9], np.roll(np.eye(3)
+                                                      + np.roll(np.eye(3), 1,
+                                                                axis=0),
+                                                      1, axis=1))
+    assert np.array_equal(t_per_cell[:, 9:], np.zeros((3, 4)))
+
+
+def test_areas_coefs():
     organo = _create_org()
-    answer = [(0, 11, 2),
-              (1, 9, 0),
-              (2, 10, 1),
-              (5, 6, 3),
-              (3, 7, 4),
-              (4, 8, 5)]
-    for ind, _ in organo.vert_df.iterrows():
-        assert tuple(_adj_edges(organo, ind).index) == answer[ind]
+    ar_coefs = _areas_coefs(organo)
+    assert isinstance(ar_coefs, np.ndarray)
+    assert np.array_equal(ar_coefs.shape, (12, 4))
 
-def test_adj_faces():
-    organo = _create_org()
-    answer = [{0: (0, -1), 2: (2, -1), 11: (0, 2)},
-              {1: (1, -1), 0: (0, -1), 9: (1, 0)},
-              {2: (2, -1), 1: (1, -1), 10: (2, 1)},
-              {5: (2, -2), 3: (0, -2), 6: (2, 0)},
-              {3: (0, -2), 4: (1, -2), 7: (0, 1)},
-              {4: (1, -2), 5: (2, -2), 8: (1, 2)}]
-    for ind, _ in organo.vert_df.iterrows():
-        assert _adj_faces(organo, ind) == answer[ind]
-
-
-def test_collect_data():
-    organo = _create_org()
-    answer = {0: {0: (0, -1), 2: (2, -1), 11: (0, 2)},
-              1: {1: (1, -1), 0: (0, -1), 9: (1, 0)},
-              2: {2: (2, -1), 1: (1, -1), 10: (2, 1)},
-              3: {5: (2, -2), 3: (0, -2), 6: (2, 0)},
-              4: {3: (0, -2), 4: (1, -2), 7: (0, 1)},
-              5: {4: (1, -2), 5: (2, -2), 8: (1, 2)}}
-
-    for ind, _ in organo.vert_df.iterrows():
-        assert _collect_data(organo)[ind] == answer[ind]
 
 def test_coef_matrix():
     organo = _create_org()
-    answer = [[-0.866, 0, 0, 0, 0 , 0, 0, 0, 0, 0, 0 ,0.5, 0, 0],
-              [0.866, 0.866, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0],
-              [0, -0.866, 0, 0, 0, 0, 0, 0, 0, 0, 0.5, 0, 0, 0],
-              [0, 0, 0, -0.866, 0, 0, -0.5, 0, 0, 0, 0, 0, 0, 0],
-              [0, 0, 0, 0.866, 0.866, 0, 0, 1, 0, 0, 0, 0, 0, 0],
-              [0, 0, 0, 0, -0.866, 0, 0, 0, -0.5, 0, 0, 0, 0, 0],
-              [0.5, 0, 1, 0, 0, 0, 0, 0, 0, -0.25, 0, 0.25, 0, 0],
-              [-0.5, 0.5, 0, 0, 0, 0, 0, 0, 0, -0.5, 0.5, 0, 0, 0.75],
-              [0, -0.5, -1, 0, 0, 0, 0, 0, 0, 0, 0.25, -0.25, 0, -0.75],
-              [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
-              [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0]]
-    matrix = _coef_matrix(organo)
-    for line_ind, line in enumerate(matrix):
-        for element_ind, coef in enumerate(line):
-            assert round(coef, 3) == answer[line_ind][element_ind]
+    coef_mat = _coef_matrix(organo)
+    ar_coefs = _areas_coefs(organo)
+    t_per_cell = _t_per_cell_coefs(organo,
+                                   _get_sim_param(3, 1, 2),
+                                   _infer_pol(organo))
+    assert isinstance(coef_mat, np.ndarray)
+    assert np.array_equal(coef_mat.shape, (15, 13))
+    assert np.array_equal(coef_mat[:12, 9:], ar_coefs)
+    assert np.array_equal(coef_mat[12:], t_per_cell)
+
+
+def test_tmp_infer_forces():
+    organo = _create_org()
+    _tmp_infer_forces(organo, 0.01)
+
+
+def test_opt_cst_obj():
+    organo = _create_org()
+    dist = _opt_cst_obj(0.02, organo)
+    assert dist > 0
+
+
+def test_opt_sum_lambda():
+    organo = _create_org()
+    res = opt_sum_lambda(organo)
+    assert type(res) == float
+    assert res > 0
+
 
 def test_infer_forces():
     organo = _create_org()
-    init_param = infer_forces(organo)
-    assert 'tensions' in init_param
-    assert 'pressions' in init_param
-    assert len(init_param['tensions']) == int(organo.Ne*0.75)
-    assert len(init_param['pressions']) == organo.Nf+2
-    assert round(np.mean(init_param['tensions']), 8) == 0.01
-    assert round(init_param['pressions'][-2], 8) == 0
+    dic = infer_forces(organo)
+    assert isinstance(dic['tensions'], np.ndarray)
+    assert isinstance(dic['areas'], np.ndarray)
+    assert np.array_equal(dic['tensions'].shape, (9,))
+    assert np.array_equal(dic['areas'].shape, (4,))
+
 
 def _create_org():
     organo = generate_ring(3, 1, 2)
     geom.update_all(organo)
     alpha = 1 + 1/(20*(organo.settings['R_out']-organo.settings['R_in']))
-
-
-    # Model parameters or specifications
     specs = {
-        'face':{
+        'face': {
             'is_alive': 1,
             'prefered_area':  list(alpha*organo.face_df.area.values),
-            'area_elasticity': 1.,},
-        'edge':{
+            'area_elasticity': 1., },
+        'edge': {
             'ux': 0.,
             'uy': 0.,
             'uz': 0.,
             'line_tension': 0.1,
             'is_active': 1
             },
-        'vert':{
+        'vert': {
             'adhesion_strength': 0.,
             'x_ecm': 0.,
             'y_ecm': 0.,

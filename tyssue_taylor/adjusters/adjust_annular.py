@@ -12,10 +12,10 @@ from tyssue_taylor.models.annular import AnnularGeometry as geom
 from tyssue_taylor.models.annular import model
 
 
-def adjust_parameters(eptm, initial_guess, regularization,
+def adjust_parameters(eptm, initial_guess,
                       parameters=[('edge', 'line_tension'),
                                   ('face', 'prefered_area')],
-                      energy_min_opt=None, initial_min_opt=None,
+                      energy_min_opt=None,
                       iprint_file=None,
                       COPY_OR_SYM='copy',
                       **main_min_opt):
@@ -27,18 +27,10 @@ def adjust_parameters(eptm, initial_guess, regularization,
     initial_guess : vector of initial parameters. Length depends of the
       parameters to optimize.
       !! MUST BE ORDERED ACCORDING TO parameters !!
-    regularization : dictionnary with fields :
-                        'dic' : dictionnary with fields 'apical' and 'basal'
-                        and boolean value indicating if the corresponding set
-                        of edges should be regularized.
-                        'weight' : float, weight of the regularization module
     parameters : list of string couples. Each couple indicates the dataframe
       and the dataframe's column that contains the optimization parameters.
     energy_min_opt : scipy.optimize.minize option dictionnary for the energy
                      minimization.
-    initial_min_opt : scipy.optimize.minimize option dictionnary for the
-                      initial point search. Ignored if main_min_opt['method']
-                      is not 'PSQP' or 'SLSQP'.
     iprint_file : string. Path to a csv or txt file to print the objective
                     function evaluations during the optimization process.
     main_min_opt : option dictionnary for the main optimization. Syntax depends
@@ -58,26 +50,30 @@ def adjust_parameters(eptm, initial_guess, regularization,
             minimize_opt['minimize']['options'])
     if main_min_opt['method'] in ('trf', 'lm'):
         return least_squares(_opt_dist, initial_guess, **main_min_opt,
-                             args=(organo, regularization, False,
-                                   parameters, iprint_file, COPY_OR_SYM),
+                             args=(organo, parameters,
+                                   iprint_file, COPY_OR_SYM),
                              kwargs=minimize_opt)
     else:
         print(f"Unknown method : f{main_min_opt['method']}")
     return -1
 
 
-def _opt_dist(var_table, organo, regularization, sum_obj, parameters,
-              iprint_file=None, COPY_OR_SYM='copy', **minimize_opt):
+def _opt_dist(var_table, organo, parameters,
+              iprint_file=None, COPY_OR_SYM='copy',
+              **minimize_opt):
     tmp_organo = organo.copy()
+    tmp_organo.get_extra_indices()
     split_inds = np.cumsum([organo.datasets[elem][column].size
                             for elem, column in parameters])
+    last_tensions_ind = tmp_organo.sgle_edges.shape[0]
+    var_table = np.r_[
+        prepare_tensions(tmp_organo, var_table[:last_tensions_ind]),
+        var_table[last_tensions_ind:]]
     splitted_var = np.split(var_table, split_inds[:-1])
     variables = _prepare_params(tmp_organo, splitted_var, parameters)
     return distance_regularized(tmp_organo, organo, variables,
                                 solver, geom, model,
-                                to_regularize=regularization['dic'],
-                                reg_weight=regularization['weight'],
-                                sum_residuals=sum_obj,
+                                coords=tmp_organo.coords,
                                 IPRINT=iprint_file,
                                 COPY_OR_SYM='copy',
                                 **minimize_opt)
@@ -97,7 +93,6 @@ def prepare_tensions(organo, tension_array):
     the tensions array properly organised to fit into an organo dataset
     """
     tensions = organo.edge_df.line_tension.values
-    # apical and basal edges
     tensions[:2*organo.Nf] = tension_array[:2*organo.Nf]
 
     tensions[2*organo.Nf:3*organo.Nf] = tension_array[2*organo.Nf:3*organo.Nf]

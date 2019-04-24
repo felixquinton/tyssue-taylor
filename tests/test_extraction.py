@@ -12,11 +12,13 @@ from tyssue.generation.shapes import AnnularSheet
 
 from tyssue_taylor.segmentation.segment2D import (extract_membranes,
                                                   _recognize_in_from_out,
-                                                  _delete_artifact,
-                                                  _arrange_centers_clockwise,
-                                                  extract_nuclei,
+                                                  _star_convex_polynoms,
+                                                  _quick_del_art,
+                                                  _quick_clockwise,
+                                                  _card_coords,
                                                   generate_ring_from_image)
 CURRENT_DIR = os.path.abspath(__file__)
+
 
 def test_recognize_in_from_out():
     retained_contours = np.array([[[[1, 0]], [[0, 1]]], [[[2, 0]], [[0, 2]]]])
@@ -33,11 +35,13 @@ def test_recognize_in_from_out():
     assert res_dic['rOut'] > res_dic['rIn']
     assert not np.any(np.isnan(res_dic['center_inside']))
     assert not np.any(np.isinf(res_dic['center_inside']))
+    assert inside[0][0] == 1
+    assert outside[0][0] == 2
 
 
 def test_extract_membranes():
     gp_dir = os.sep.join(CURRENT_DIR.split(os.sep)[:-2])
-    brightfield_path = gp_dir+'/assets/sample_image_brightfield.tiff'
+    brightfield_path = gp_dir+'/assets/sample_image_actin_surligned.tif'
     assert os.path.isfile(brightfield_path)
     membrane_dic = extract_membranes(brightfield_path)
     for table in (membrane_dic['inside'], membrane_dic['outside'],
@@ -53,44 +57,55 @@ def test_extract_membranes():
     assert not np.any(np.isnan(membrane_dic['center_inside']))
     assert not np.any(np.isinf(membrane_dic['center_inside']))
 
-def test_delete_artifact():
-    centers = np.array([[1, 0], [0, 1], [100, 100]])
-    raw_inside = np.array([[1, 0], [0, 1], [-1, 0], [0, -1]])
-    res = _delete_artifact(centers, raw_inside)
-    assert [100, 100] not in res
+
+def test_quick_del_art():
+    centers = np.array([[1, 0], [0, 1], [0.1, 0.1]])
+    rho, phi = _card_coords(centers, (0, 0))
+    res = _quick_del_art(centers, rho, 1)
+    assert [0.1, 0.1] not in res
     assert [1, 0] in res
     assert [0, 1] in res
     assert len(res) == 2
 
-def test_arrange_centers_clockwise():
-    centers = [[1, 0], [0, 1], [-1, 0], [0, -1]]
-    org_center = (0, 0)
-    res = _arrange_centers_clockwise(centers, org_center)
-    assert isinstance(res, list)
-    assert len(res) == 4
-    assert res.index((1, 0)) == (res.index((0, 1)) - 1) % 4
-    assert res.index((0, -1)) == (res.index((1, 0)) - 1) % 4
-    assert res.index((-1, 0)) == (res.index((0, -1)) - 1) % 4
-    assert res.index((0, 1)) == (res.index((-1, 0)) - 1) % 4
 
-def test_extract_nuclei():
+def test_quick_clockwise():
+    centers = np.array([[1, 0], [0, 1], [-1, 0], [0, -1]])
+    org_center = (0, 0)
+    rho, phi = _card_coords(centers, org_center)
+    res = _quick_clockwise(centers, phi, rho, 1)
+    assert len(res) == 4
+    assert np.array_equal(res[0], [0, -1])
+    assert np.array_equal(res[1], [1,  0])
+    assert np.array_equal(res[2], [0,  1])
+    assert np.array_equal(res[3], [-1,  0])
+
+
+def test_star_convex_polynoms():
     gp_dir = os.sep.join(CURRENT_DIR.split(os.sep)[:-2])
-    dapi_path = gp_dir+'/assets/CELLPROFILER_sample_image_dapi.tiff.csv'
+    dapi_path = gp_dir+'/assets/sample_image_dapi.tiff'
+    model_path = gp_dir+'/assets/star_convex_polynoms/models'
+    brightfield_path = gp_dir+'/assets/sample_image_actin_surligned.tif'
     assert os.path.isfile(dapi_path)
-    center_inside = (631.47, 429.66)
-    raw_inside = np.array([[1, 0], [0, 1], [-1, 0], [0, -1]])
-    img_shape = (3, 3)
-    res = extract_nuclei(dapi_path, center_inside, raw_inside, img_shape)
+    assert os.path.isfile(brightfield_path)
+    membrane_dic = extract_membranes(brightfield_path, 2, 9)
+    res = _star_convex_polynoms(dapi_path, membrane_dic, model_path)
     assert isinstance(res, np.ndarray)
     assert res.shape[1] == 2
-    assert res.shape[0] == 136
+    assert res.shape[0] == 206
+
 
 def test_generate_ring_from_image():
     gp_dir = os.sep.join(CURRENT_DIR.split(os.sep)[:-2])
-    brightfield_path = gp_dir+'/assets/sample_image_brightfield.tiff'
-    dapi_path = gp_dir+'/assets/CELLPROFILER_sample_image_dapi.tiff.csv'
-    organo, inners, outers, centers = generate_ring_from_image(brightfield_path,
-                                                               dapi_path)
+    brightfield_path = gp_dir+'/assets/sample_image_actin_surligned.tif'
+    dapi_path = gp_dir+'/assets/sample_image_dapi.tiff'
+    model_path = gp_dir+'/assets/star_convex_polynoms/models'
+    organo, inners, outers, centers = generate_ring_from_image(
+        brightfield_path,
+        dapi_path,
+        scp_model_path=model_path,
+        threshold=2, blur=9,
+        rol_window_inside=100,
+        rol_window_outside=20)
     for table in (inners, outers):
         assert isinstance(table, np.ndarray)
         assert not np.any(np.isnan(table))
