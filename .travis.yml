@@ -20,7 +20,8 @@ before_install:
   - cd pyOpt
   - python setup.py install
   - cd ../tyssue-taylor
-  - conda install pytest pytest-cov opencv tifffile
+  - conda install pytest pytest-cov opencv
+  - conda install -c conda-forge tifffile 
   - pip install coveralls
 
 install:
