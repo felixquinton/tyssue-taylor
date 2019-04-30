@@ -22,7 +22,7 @@ def distance_regularized(eptm, objective_eptm, variables,
     ----------
     eptm : :class:`Epithelium` object
     objective_eptm : :class:`Epithelium` object to refer to
-    variables : dict of values to be changed (see bellow)
+    variables : dict of values to be changed (see below)
     solver : solver to find energy minimum
     geom : tyssue geometry class
     model : tyssue dynamic model
@@ -32,6 +32,9 @@ def distance_regularized(eptm, objective_eptm, variables,
     variables is a dict of values. The keys are a pair with the element to
     change i.e.
     IPRINT : string. Path to a file used to save the value of the distance.
+    COPY_OR_SYM : string either 'copy' or 'sym'. Indicates if the experimental
+      mesh must be initialized as a copy of the theoritical mesh or as a
+      symetric mesh.
     """
     if COPY_OR_SYM == 'copy':
         tmp_eptm = eptm.copy()
@@ -60,6 +63,20 @@ def distance_regularized(eptm, objective_eptm, variables,
 
 
 def _distance(actual_eptm, objective_eptm, coords=None):
+    """Computes the point to point euclidian distance between two organoids.
+
+    Parameters
+    ----------
+    actual_eptm : :class:`Epithelium` object
+      The experimental mesh.
+    objective_eptm : :class:`Epithelium` object
+      The theoritical mesh
+
+    Return
+    ----------
+    np.ndarray of shape actual_eptm.Nv
+      The point to point distance between actual_eptm and objective_eptm.
+    """
     if coords is None:
         coords = objective_eptm.coords
     diff = np.subtract(np.array(actual_eptm.vert_df[coords].values),
@@ -68,6 +85,18 @@ def _distance(actual_eptm, objective_eptm, coords=None):
 
 
 def _tension_bounds(actual_eptm):
+    """Computes a penalty term to remove strictly negative tensions.
+
+    Parameters
+    ----------
+    actual_eptm : :class:`Epithelium` object
+      The experimental mesh.
+
+    Return
+    ----------
+    pen : np.ndarray of shape actual_eptm.Nf*3
+      The value of the penalty for each tension.
+    """
     tensions = (actual_eptm.edge_df.loc[:, 'line_tension']
                 [:3*actual_eptm.Nf].values)
     pen = np.zeros(tensions.shape)
@@ -76,6 +105,15 @@ def _tension_bounds(actual_eptm):
 
 
 def _save_opt_data(IPRINT, obj):
+    """Saves the distance calls to a text file.
+
+    Parameters
+    ----------
+    IPRINT : string
+      Path to the output file.
+    obj : float
+      The value to write in the desired file.
+    """
     with open(IPRINT, mode='a+') as csv_file:
         csv_writer = csv.writer(csv_file, delimiter=',',
                                 quotechar='"',

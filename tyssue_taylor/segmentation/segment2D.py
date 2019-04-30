@@ -26,23 +26,21 @@ def generate_ring_from_image(brightfield_path, dapi_path,
     brightfield_path : string
       path to the brightfield image
     dapi_path : string
-      path to the CellProfiler output csv file
+      path to the DAPI image
+    scp_model_path : string
+      path to the stardist model
     threshold: int >=0
       threshold to apply to the brightfield image
     blur: int >=0
       gaussian blur to apply to the brightfield image
+    rol_window_inside: int > 0.
+      Length of the window of the rolling mean on apical contour.
+    rol_window_outside: int > 0.
+      Length of the window of the rolling mean on basal contour.
     Return
     ----------
     organo : object of class AnnularSheet
       the organo mesh extracted from the data
-#    Nf : int >0
-#      number of cells in the organo
-#    inners : np.array of shape (Nf, 2)
-#      coordinates of the vertices of the mesh on the inner ring
-#    outers : np.array of shape (Nf, 2)
-#      coordinates of the vertices of the mesh on the outer ring
-#    centers : np.array of shape (Nf, 2)
-#      coordinates of the nuclei centers clockwise
     """
 
     membrane_dic = extract_membranes(brightfield_path, threshold, blur)
@@ -83,6 +81,21 @@ def generate_ring_from_image(brightfield_path, dapi_path,
 
 
 def _star_convex_polynoms(dapi_path, membrane_dic, model_path):
+    """Nuclei segmentation using the stardist algorithm.
+
+    Parameters
+    ----------
+    dapi_path : string
+      path to the DAPI image
+    membrane_dic: dic obtained with extract_membranes.
+      Dictionnary containing relevant informations about the membranes.
+    model_path : string
+      path to the stardist model
+    Return
+    ----------
+    clockwise_centers : np.ndarray
+      An array of cell centers, sort in clockwise order.
+    """
     images = sorted(glob(dapi_path))
     images = list(map(imread, images))
     img = normalize(images[0], 1, 99.8)
@@ -119,11 +132,13 @@ def extract_membranes(brightfield_path, threshold=2, blur=9):
 
     Return
     ----------
-    inside : np.ndarray
-      the extracted contours for the inner rings
-    outside : np.ndarray
-      the extracted contours for the outer rings
-
+    res_dic : dic
+      Dictionnary with items:
+      - raw_inside : apical contour coordinates in the image.
+      - raw_outside : basal contour coordinates in the image.
+      - inside : apical contour coordinates centered on (0, 0).
+      - outside : basal contour coordinates centered on (0, 0).
+      - img_shape : shape of the brightfield image.
     """
     img = cv.imread(brightfield_path, cv.IMREAD_GRAYSCALE).copy()
     _, img = cv.threshold(img, threshold, 255, 0)
@@ -246,13 +261,15 @@ def normalize_scale(organo, geom, refer='area'):
 
 
 def _recognize_in_from_out(retained_contours, centers, radii):
-    '''Reliable recognition of the inner and outer contours
+    '''Recognition of the inner and outer contours
     Parameters
     ----------
-    centers : np.ndarray of shape (Nf,2)
-      the centers of the nuclei
-    org_center : tuple (x,y)
-      coordinates of the center of the organo
+    retained_contours : list of contours
+      Two contours that are candidates for inner and outer membranes.
+    centers : tuple of size 2
+      the centers of the wo contours
+    radii : tuple of size 2
+      The radii of the two contours
 
     Returns
     -------
@@ -274,6 +291,21 @@ def _recognize_in_from_out(retained_contours, centers, radii):
 
 
 def _card_coords(array, center):
+    """Convert cartesian coordinates into polar coordinates.
+    Parameters
+    ----------
+    array : np.ndarray of shape (x, 2)
+      An array of 2d points
+    center : 2d point
+      The point at the center on the polar coordinates system.
+
+    Return
+    ----------
+    rho : np.ndarray of shape x
+      the table of radii
+    phi : np.ndarray of shape x
+      the table of angles
+    """
     x, y = array[:, 0], array[:, 1]
     x0, y0 = center
     rho = np.linalg.norm(np.c_[x-x0, y-y0], axis=1)
@@ -282,11 +314,45 @@ def _card_coords(array, center):
 
 
 def _quick_clockwise(array, phi, rho, radius):
+    """Sort an array on points in clockwise order.
+    Parameters
+    ----------
+    array : np.ndarray of shape (x, 2)
+      An array of 2d points
+    phi : np.ndarray of shape x
+      angle elements of the polar coordinates of array
+    rho : np.ndarray of shape x
+      radius elements of the polar coordinates of array
+    radius: float.
+      the radius of the ring.
+
+    Return
+    ----------
+    rho : np.ndarray of shape x
+      the table of radii
+    phi : np.ndarray of shape x
+      the table of angles
+    """
     res = array[np.argsort(phi[rho > radius*0.8]), :]
     return res
 
 
 def _quick_del_art(array, rho, radius):
+    """Deletes cells that are too far inside the organoid.
+    Parameters
+    ----------
+    array : np.ndarray of shape (x, 2)
+      An array of 2d points
+    rho : np.ndarray of shape x
+      radius elements of the polar coordinates of array
+    radius: float.
+      the radius of the ring.
+
+    Return
+    ----------
+    res : np.ndarray
+      Array of points that are on the ring.
+    """
     res = array[rho > radius*0.8]
     return res
 
@@ -325,7 +391,7 @@ def _find_closer_angle(theta0, theta1):
 
 
 def _fill_gaps(contour, gap_dist):
-    ''' !!! update :Finds the gaps in a contour from opencv findContours and
+    ''' Finds the gaps in a contour from opencv findContours and
     fill it with a straight line.
 
     Parameters

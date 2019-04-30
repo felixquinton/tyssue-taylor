@@ -1,5 +1,7 @@
 """This module contains functions that are used to display various info on an
 organoid.
+For documentation please refer to the corresponding notebook:
+notebooks/tyssue_taylor/models.display.ipynb
 """
 
 import numpy as np

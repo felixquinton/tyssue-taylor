@@ -6,32 +6,6 @@ build the M coefficient matrix that will be inverted.
 We use this paper : Mechanical Stress inference
 for Two Dimensional Cell Arrays, K.Chiou et al., 2012
 To use force inference, please call the infer_forces function.
-The doc-string of infer_forces is given below :
-    Uses the functions defined above to compute the initial
-    guess given by the force inference method with Moore-Penrose
-    pseudo-inverse.
-    *****************
-    Parameters:
-    organo :  :class:`Epithelium` object
-    method : string
-     one of 'MP' (default) for Moore-Penrose pseudo-inverse method, 'QP' to
-     solve the model with quadratic programming (which ensure non negative
-     tensions) or 'NNLS' which runs the non-negative least squares algorithm
-     from Lawson C., Hanson R.J., (1987) Solving Least Squares Problems.
-    init_method : string
-     argument to define the initialization method for the QP method.
-     One of 'simple'(default) : initialize with vector of zeros.
-            'moore-penrose' : initialize with the Moore-Penrose initial point.
-    compute_pressions : boolean
-     If True, the method computes tensions and pressions. If False, the method
-     computes only tensions.
-    verbose : boolean
-     If True, print the inital point.
-    *****************
-    Returns
-    dic with key :  tensions : the vector of tensions
-                    pressions : the vector of pressions if computed
-    *****************
 """
 import numpy as np
 import pandas as pd
@@ -49,23 +23,24 @@ from tyssue_taylor.adjusters.cost_functions import _distance
 
 
 def infer_forces(organo,  sup_param="areas", t_sum=0.01, verbose=False):
-    """Uses the functions defined above to compute the initial
-    guess given by the force inference method with Moore-Penrose
-    pseudo-inverse.
+    """Solves the force inference problem with given parameters and provides
+    easy to use force inference results.
+
     *****************
     Parameters:
     organo :  :class:`Epithelium` object
     sup_param : string, one of '', 'pressions' or 'areas'
      '': computes only tensions
-     'pressions': compute tensions and pressions
      'areas': computes tensions and the difference between cells area and cells
       prefered area.
+    t_sum : float
+      The total value of tensions in the mesh.
     verbose : boolean
      If True, print the inital point.
     *****************
     Returns
     dic with key :  tensions : the vector of tensions
-                    areas : the vector of areas if computed
+                    areas : the vector of areas (if computed)
     *****************
     """
     system_sol = _nnls_model(organo, sup_param, t_sum, verbose)
@@ -97,6 +72,20 @@ def opt_sum_lambda(eptm, method="golden"):
 
 
 def _opt_cst_obj(sum_tensions, eptm):
+    """Objective function for the optimal total tension problem.
+    *****************
+    Parameters:
+    sum_tensions : float
+      The total tension to set in the force inference problem.
+    eptm :  :class:`Epithelium` object
+      Theoritical mesh.
+    *****************
+    Returns
+    dist : float
+      The distance between the theoritical mesh and the mesh obtained by
+      solving the force inference problem with given total tensions.
+    *****************
+    """
     th_eptm = eptm.copy()
     exp_eptm = _tmp_infer_forces(th_eptm,
                                  sum_tensions).copy()
@@ -107,6 +96,23 @@ def _opt_cst_obj(sum_tensions, eptm):
 def _tmp_infer_forces(eptm,
                       t_sum,
                       sup_param="areas"):
+    """Given a value for the total tension, computes the force infered mesh.
+    *****************
+    Parameters:
+    eptm :  :class:`Epithelium` object
+    t_sum : float
+      The total tension to set in the force inference problem.
+    sup_param : string, one of '', 'pressions' or 'areas'
+     '': computes only tensions
+     'areas': computes tensions and the difference between cells area and cells
+      prefered area.
+    *****************
+    Returns
+    tmp_organo : :class:`Epithelium` object
+      The mesh infered by force inference. Note that energy minization
+      is applied.
+    *****************
+    """
     tmp_organo = eptm.copy()
     fi_params = infer_forces(eptm, sup_param, t_sum, verbose=False)
 
@@ -123,11 +129,32 @@ def _tmp_infer_forces(eptm,
 
 
 def _coef_matrix(organo, sup_param='areas', t_sum=0.01):
+    """Computes the coefficient matrix of the force inference problem.
+    *****************
+    Parameters:
+    organo :  :class:`Epithelium` object
+    t_sum : float
+      The total tension to set in the force inference problem.
+    sup_param : string, one of '', 'pressions' or 'areas'
+      '': computes only tensions
+      'areas': computes tensions and the difference between
+               cells area and cells
+      prefered area.
+    *****************
+    Returns
+    coef : np.ndarray
+      The coefficient matrix for the force inference problem.
+    *****************
+    """
+
+    # Computing the tension coefficients
     organo.get_extra_indices()
     u_ij = organo.edge_df.eval('dx / length')
     v_ij = organo.edge_df.eval('dy / length')
     uv_ij = np.concatenate((u_ij, v_ij))
 
+    # Setting the indices to build the coo_matrix objects.
+    # Voir doc scipy.sparse.coo_matrix
     coef_shape = (2*organo.Nv, organo.Ne)
     srce_rows = np.concatenate([
         organo.edge_df.srce,
@@ -147,10 +174,14 @@ def _coef_matrix(organo, sup_param='areas', t_sum=0.01):
                                   shape=coef_shape)
     coef = coef_srce + coef_trgt
 
+    # Setting the tension coefficients in the matrix
     coef = coef[:, :organo.Nf*3].toarray()
+
+    # Eventually adding the area coefficients
     if sup_param == 'areas':
         coef = np.c_[coef, _areas_coefs(organo)]
 
+    # Adding the lines corresponding to the sum of tension per cell
     coef = np.r_[coef, _t_per_cell_coefs(organo,
                                          _get_sim_param(organo.Nf,
                                                         organo.settings['R_in'],
@@ -162,6 +193,17 @@ def _coef_matrix(organo, sup_param='areas', t_sum=0.01):
 
 
 def _areas_coefs(organo):
+    """Computes the area coefficients for the force inference matrix.
+    *****************
+    Parameters:
+    organo :  :class:`Epithelium` object
+    *****************
+    Returns
+    area_coefs : np.ndarray
+      The area coefficients for the force inference problem.
+    *****************
+    """
+    # Computing all dA/dx gradients
     grad_srce, grad_trgt = area_grad(organo)
     grad_lumen_srce, grad_lumen_trgt = lumen_area_grad(organo)
     grouped_srce = grad_srce.groupby(organo.edge_df.srce)
@@ -169,6 +211,8 @@ def _areas_coefs(organo):
     grouped_lumen_srce = grad_lumen_srce.groupby(organo.edge_df.srce)
     grouped_lumen_trgt = grad_lumen_trgt.groupby(organo.edge_df.trgt)
     area_coefs = np.zeros((2*organo.Nv, organo.Nf+1))
+
+    # Grouping gradients by vertex and computing the associated coefficient.
     for vertex in range(organo.Nv):
         adj_srce = grouped_srce.get_group(
             list(grouped_srce.groups.keys())[vertex])
@@ -179,14 +223,19 @@ def _areas_coefs(organo):
         adj_lumen_trgt = grouped_lumen_trgt.get_group(
             list(grouped_lumen_trgt.groups.keys())[vertex])[::-1]
         coefs_cols = organo.edge_df.loc[adj_srce.index, 'face']
+        # Area coefficient in the x axis
         area_coefs[vertex][coefs_cols] = (adj_srce.gx.values +
                                           adj_trgt.gx.values)
+        # Area coefficient in the y axis
         area_coefs[organo.Nv+vertex][coefs_cols] = (adj_srce.gy.values +
                                                     adj_trgt.gy.values)
+        # Lumen coefficient in the x axis
         area_coefs[vertex][organo.Nf] = np.sum((adj_lumen_srce.gx,
                                                adj_lumen_trgt.gx))
+        # Lumen coefficient in the y axis
         area_coefs[organo.Nv+vertex][organo.Nf] = np.sum((adj_lumen_srce.gy,
                                                           adj_lumen_trgt.gy))
+    # Multiplying the results by the area elasticity
     area_elasticity = np.tile(np.hstack([organo.face_df.area_elasticity,
                                          organo.settings['lumen_elasticity']]),
                               (2*organo.Nv, 1))
@@ -198,10 +247,34 @@ def _t_per_cell_coefs(eptm,
                       params_in_sym_mesh,
                       polar_coefs,
                       sup_param='areas'):
+    """Computes the coefficients on the lines corresponding to the constraints
+    stating that the sum of tensions per cell is equal to a constant.
+    *****************
+    Parameters:
+    eptm :  :class:`Epithelium` object
+    params_in_sym_mesh: vect of len 3
+      The parameters in a symetric mesh equivalent to eptm. Computed through
+      dedicated function _get_sim_param
+    polar_coefs: np.ndarray of shape eptm.Nf
+      An estimation of the polarization of each cell. Computed through
+      dedicated function _infer_pol
+    sup_param : string, one of '', 'pressions' or 'areas'
+      '': computes only tensions
+      'areas': computes tensions and the difference between
+               cells area and cells
+      prefered area.
+    *****************
+    Returns
+    np.ndarray
+    The lines of the coefficient matrix corresponding to the constraints
+    stating that the sum of tensions per cell is equal to a constant.
+    *****************
     """
-    Discussion sur l'estimation de la polarisation. Voir _infer_pol
-    """
+    # Setting the coefficients using polar_coefs for the apical coefficients
     coefs_tables = np.c_[polar_coefs, np.ones((eptm.Nf, 3))].flatten()
+
+    # Computing the indices for the coo_matrix object
+    # Voir doc scipy.sparce.coo_matrix
     base_col_ind = np.arange(eptm.Nf)
     col_inds = np.c_[base_col_ind,
                      base_col_ind + eptm.Nf,
@@ -212,6 +285,7 @@ def _t_per_cell_coefs(eptm,
         matrix_shape = (eptm.Nf, 4*eptm.Nf+1)
     else:
         matrix_shape = (eptm.Nf, 3*eptm.Nf)
+
     coef_matrix = sparse.coo_matrix((coefs_tables, (row_inds, col_inds)),
                                     shape=matrix_shape)
 
@@ -219,18 +293,53 @@ def _t_per_cell_coefs(eptm,
 
 
 def _right_side(eptm, t_sum=0.01):
+    """Computes right side constant vector of the force inference problem.
+    *****************
+    Parameters:
+    eptm :  :class:`Epithelium` object
+    t_sum : float
+      The total tension to set in the force inference problem.
+    *****************
+    Returns
+    np.ndarray
+    The right side of the force inference problem.
+    *****************
+    """
     params_in_sym_mesh = _get_sim_param(eptm.Nf,
                                         eptm.settings['R_in'],
                                         eptm.settings['R_out'],
                                         sum_lbda=t_sum)
+
+    # Computing the Farhadifar constant (multiplied by 4 to
+    # account for the 4 edges of a cell)
     far_cste = 4*((params_in_sym_mesh[1:].sum() + params_in_sym_mesh[-1])/3 /
                   (abs(eptm.face_df.area.mean() +
                        params_in_sym_mesh[0]))**1.5)
+
+    # The 4Nf first entries are zeros and the Nf following entries are given
+    # by the Farhadifar constant.
     far_table = np.full(int(eptm.Nf), far_cste)
     return np.r_[np.zeros(2*eptm.Nv), far_table]
 
 
 def _get_sim_param(Nf, Ra, Rb, sum_lbda=0.01):
+    """Given the parameters of a symetric mesh, solves for the parameters in
+    this mesh. The problem to solve is a 3x3 linear equation system that have
+    been solved by hand.
+    *****************
+    Parameters:
+    Nf :  int. Number of cells in the mesh
+    Ra :  float. Apical radius
+    Rb :  float. Basal radius
+    t_sum : float
+      The total tension to set in the force inference problem.
+    *****************
+    Returns
+    (a-a0, la, lh), where a-a0 is the difference between cell's area and cell's
+    prefered area, la is the apical tension and lb is lh is the
+    lateral tension.
+    *****************
+    """
     sin_t = np.sin(np.pi/Nf)
     sin_2t = np.sin(2*np.pi/Nf)
 
@@ -248,6 +357,18 @@ def _get_sim_param(Nf, Ra, Rb, sum_lbda=0.01):
 
 
 def _infer_pol(eptm):
+    """Computes an estimation of the cell's polarization. For now returns only
+    the distance between the center on the cell and the apical edge.
+    *****************
+    Parameters:
+    eptm :  :class:`Epithelium` object
+    *****************
+    Returns
+    polar_coefs : np.ndarray of size organo.Nf
+    The estimation of the polzarization of the cells. The lower the values,
+    the higher the infered polarization.
+    *****************
+    """
     """
     Remarque : il ne faut pas faire real_dist / sym_dist mais l'inverse.
     Lorsque les cellules s'allongent le centre recule.
@@ -264,14 +385,18 @@ def _infer_pol(eptm):
     cell_centers = np.c_[eptm.face_df.loc[:, eptm.coords]]
     api_vs = np.c_[eptm.vert_df.loc[eptm.apical_verts, eptm.coords]]
 
+    # Computing the equation of the apical segments
     a = ((np.roll(api_vs[:, 1], 1)-api_vs[:, 1]) /
          (np.roll(api_vs[:, 0], 1)-api_vs[:, 0]))
     b = api_vs[:, 1] - a*api_vs[:, 0]
 
+    # Computing the distance between apical segments and corresponding
+    # cell center
     dist = np.divide(np.abs(np.multiply(a, cell_centers[:, 0]) -
                             cell_centers[:, 1] + b),
                      np.sqrt(a**2 + 1))
 
+    # Computing the same distance in the symetric mesh
     sym_height = (eptm.settings['R_out'] -
                   eptm.settings['R_in']) * np.cos(np.pi/eptm.Nf)
     sin_t = np.sin(np.pi/eptm.Nf)
@@ -279,6 +404,7 @@ def _infer_pol(eptm):
     sym_lb = 2*eptm.settings['R_out']*sin_t
     sym_dist = sym_height/3 * (sym_la + 2*sym_lb)/(sym_la + sym_lb)
 
+    # For now we do not use the distance in the symetric mesh...
     polar_coefs = dist
 
     polar_coefs[np.isnan(polar_coefs)] = 1
@@ -286,6 +412,24 @@ def _infer_pol(eptm):
 
 
 def _nnls_model(organo, sup_param, t_sum, verbose):
+    """Solves the force inference problem using NNLS.
+    *****************
+    Parameters:
+    organo :  :class:`Epithelium` object
+    sup_param : string, one of '', 'pressions' or 'areas'
+     '': computes only tensions
+     'areas': computes tensions and the difference between cells area and cells
+      prefered area.
+    t_sum : float
+      The total value of tensions in the mesh.
+    verbose : boolean
+     If True, print the inital point.
+    *****************
+    Returns
+    res: np.ndarray
+      NNLS's solution of the force inference problem.
+    *****************
+    """
     res, _ = nnls(_coef_matrix(organo, sup_param, t_sum),
                   _right_side(organo, t_sum))
     if verbose:

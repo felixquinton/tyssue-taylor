@@ -33,14 +33,11 @@ def adjust_parameters(eptm, initial_guess,
                      minimization.
     iprint_file : string. Path to a csv or txt file to print the objective
                     function evaluations during the optimization process.
-    main_min_opt : option dictionnary for the main optimization. Syntax depends
-                   on the method. For bgfs and SLSQP use the
-                   scipy.optimize.minimize syntax. For trf and lm use the
-                   scipy.optimize.least_squares method.
-                   For PSQP the syntax is :
-                   'lb' : lower bound of the Parameters
-                   'ub' : upper bound of the Parameters
-                   'method': PSQP
+    COPY_OR_SYM : string either 'copy' or 'sym'. Indicates if the experimental
+      mesh must be initialized as a copy of the theoritical mesh or as a
+      symetric mesh.
+    main_min_opt : option dictionnary for the main optimization.
+                   For trf and lm use the scipy.optimize.least_squares method.
     """
     organo = eptm.copy()
     minimize_opt = config.solvers.minimize_spec()
@@ -61,6 +58,29 @@ def adjust_parameters(eptm, initial_guess,
 def _opt_dist(var_table, organo, parameters,
               iprint_file=None, COPY_OR_SYM='copy',
               **minimize_opt):
+    """Objective function for the distance minimization.
+
+    Parameters
+    ----------
+    var_table : vector of optimization parameters. Length depends of the
+      parameters to optimize.
+      !! MUST BE ORDERED ACCORDING TO parameters !!
+    organo: :class:`Epithelium` object
+    parameters : list of string couples. Each couple indicates the dataframe
+    and the dataframe's column that contains the optimization parameters.
+    iprint_file : string. Path to a csv or txt file to print the objective
+                function evaluations during the optimization process.
+    COPY_OR_SYM : string either 'copy' or 'sym'. Indicates if the experimental
+      mesh must be initialized as a copy of the theoritical mesh or as a
+      symetric mesh.
+    minimize_opt : scipy.optimize.minize option dictionnary for the energy
+                   minimization.
+
+    Return
+    ---------
+    np.ndarray of shape organo.Nv + 3*organo.Nf. Concatenation of the residuals
+    and the non-negativity penalty on the tensions.
+    """
     tmp_organo = organo.copy()
     tmp_organo.get_extra_indices()
     split_inds = np.cumsum([organo.datasets[elem][column].size
@@ -102,17 +122,23 @@ def prepare_tensions(organo, tension_array):
 
 
 def _prepare_params(organo, splitted_var, parameters):
-    """Match the tension in a reduced array to an organo dataset
+    """Prepare a dictionnary to set optimization parameters corresponding to
+    different physical parameters in the proper dataset of the mesh.
 
     Parameters
     ----------
     organo : :class:`Epithelium` object
-    tension_array : vector of initial line tensions (size 3*Nf)
+    splitted_var: list of list or np.ndarray
+      The list of vectors of optimization parameters. Vectors must be in the
+      same order as the elements in parameters.
+    parameters : list of string couples. Each couple indicates the dataframe
+      and the dataframe's column that contains the optimization parameters.
 
     Return
     ----------
-    tensions : np.ndarray of size 4*Nf
-    the tensions array properly organised to fit into an organo dataset
+    variables : dictionnary
+      Dictionnary with keys indicating where to set the optimization Parameters
+      and values containing the value of the parameters to set.
     """
     variables = {}
     for ind, (elem, param) in enumerate(parameters):
