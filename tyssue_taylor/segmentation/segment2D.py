@@ -85,7 +85,7 @@ def generate_ring_from_image(
     return organo, inners, outers, clockwise_centers
 
 
-def _star_convex_polynoms(dapi_path, membrane_dic, model_path):
+def _star_convex_polynoms(dapi_path, membrane_dic, model_path, full_output=False):
     """Nuclei segmentation using the stardist algorithm.
 
     Parameters
@@ -96,8 +96,10 @@ def _star_convex_polynoms(dapi_path, membrane_dic, model_path):
       Dictionnary containing relevant informations about the membranes.
     model_path : string
       path to the stardist model
-    Return
-    ----------
+
+    Returns
+    -------
+
     clockwise_centers : np.ndarray
       An array of cell centers, sort in clockwise order.
     """
@@ -117,6 +119,8 @@ def _star_convex_polynoms(dapi_path, membrane_dic, model_path):
     clockwise_centers = np.subtract(
         np.float32(clockwise_centers), np.array(membrane_dic["img_shape"]) / 2.0
     )
+    if full_output:
+        return clockwise_centers, (prob, dist, points)
 
     return clockwise_centers
 
