@@ -37,7 +37,8 @@ conda activate taylor
 python setup.py install
 ```
 
-See [This notebook](notebooks/SyntheticMesh.ipynb) for an example of how to use the library.
+## Tests
+
 
 ## Licence
 

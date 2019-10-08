@@ -7,7 +7,6 @@ Created on Wed Jun 20 11:35:28 2018
 """
 import os
 import numpy as np
-import pyOpt
 
 from tyssue.generation import generate_ring
 from tyssue import config

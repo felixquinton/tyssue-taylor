@@ -3,7 +3,6 @@ before_install:
   - sudo apt-get install --yes build-essential
   - sudo apt-get install --yes git
   - sudo apt-get install gfortran
-
   - wget https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh
   - bash miniconda.sh -b -p $HOME/miniconda
   - export PATH="$HOME/miniconda/bin:$PATH"
@@ -12,17 +11,8 @@ before_install:
   - conda update -q conda
   - conda info -a
   - conda env create -q -f environment.yml
-  - pip install simpy
-  - source activate tyssue-taylor
-  - pwd
-  - cd ..
-  - git clone https://github.com/mpicbg-csbd/stardist.git
-  - cd stardist
-  - python setup.py install
-  - cd ../tyssue-taylor
-  - conda install pytest pytest-cov opencv
-  - conda install -c conda-forge tifffile
-  - conda install -c conda-forge tensorflow
+  - conda activate taylor
+  - conda install pytest pytest-cov
   - pip install coveralls
 
 install:
