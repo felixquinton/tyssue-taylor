@@ -10,8 +10,8 @@ before_install:
   - conda config --set always_yes yes --set changeps1 no
   - conda update -q conda
   - conda info -a
-  - conda env create -q -f environment.yml
-  - conda activate taylor
+  - conda env create -f environment.yml
+  - source activate taylor
   - conda install pytest pytest-cov
   - pip install coveralls
 
