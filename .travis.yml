@@ -19,7 +19,7 @@ install:
   - python setup.py install
 
 script:
-  - pytest tests
+  - travis_wait pytest tests
 
 after_success:
   - coveralls
